@@ -1,0 +1,26 @@
+node_modules/
+dist/
+__pycache__/
+*.pyc
+.venv/
+.env
+.env.*
+!.env.example
+backend/storage/
+.pytest_cache/
+
+# Local databases and runtime data
+*.sqlite
+*.sqlite3
+*.db
+uploads/
+
+# Generated files
+*.log
+npm-debug.log*
+coverage/
+htmlcov/
+
+# OS files
+.DS_Store
+Thumbs.db

@@ -1,0 +1,6 @@
+# Only needed for SEPARATOR=demucs (the real AI model). Also requires the ffmpeg binary.
+# torch/torchaudio are capped below 2.9: Demucs 4.0.1 saves audio through
+# torchaudio.save, which newer torchaudio releases route through torchcodec.
+torch>=2.1,<2.9
+torchaudio>=2.1,<2.9
+demucs==4.0.1

@@ -1,0 +1,32 @@
+services:
+  redis:
+    image: redis:7-alpine
+
+  api:
+    build: ./backend
+    environment: &env
+      REDIS_URL: redis://redis:6379/0
+      STORAGE_DIR: /data
+      SEPARATOR: ${SEPARATOR:-demucs}
+      CORS_ORIGINS: http://localhost:5173,http://127.0.0.1:5173
+      AUTH_COOKIE_SECURE: ${AUTH_COOKIE_SECURE:-false}
+    volumes:
+      - storage:/data
+    ports:
+      - "8000:8000"
+    depends_on:
+      - redis
+
+  worker:
+    build: ./backend
+    command: celery -A app.celery_app.celery worker --loglevel=info --concurrency=1
+    environment: *env
+    volumes:
+      - storage:/data
+      - model-cache:/root/.cache/torch   # keeps the downloaded Demucs weights
+    depends_on:
+      - redis
+
+volumes:
+  storage:
+  model-cache:
