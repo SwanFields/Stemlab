@@ -1,6 +1,6 @@
 CREATE TABLE users (
     id TEXT PRIMARY KEY,
-    email TEXT NOT NULL UNIQUE COLLATE NOCASE,
+    email TEXT NOT NULL,
     username TEXT,
     password_hash TEXT NOT NULL,
     created_at INTEGER NOT NULL
@@ -28,6 +28,9 @@ CREATE INDEX sessions_user_id_idx
 CREATE INDEX job_history_user_date_idx
     ON job_history(user_id, created_at DESC);
 
-CREATE UNIQUE INDEX users_username_unique
-    ON users(username COLLATE NOCASE)
+CREATE UNIQUE INDEX users_email_lower_unique
+    ON users(LOWER(email));
+
+CREATE UNIQUE INDEX users_username_lower_unique
+    ON users(LOWER(username))
     WHERE username IS NOT NULL;

@@ -1,74 +1,132 @@
-"""SQLite-backed user accounts and opaque browser sessions."""
+"""Database-backed user accounts and opaque browser sessions."""
 import hashlib
 import hmac
 import json
 import secrets
-import sqlite3
 import time
 import uuid
-from pathlib import Path
+
+from sqlalchemy import (
+    BigInteger,
+    Column,
+    Float,
+    ForeignKey,
+    Index,
+    MetaData,
+    String,
+    Table,
+    Text,
+    URL,
+    create_engine,
+    event,
+    func,
+    inspect,
+    select,
+    update,
+)
+from sqlalchemy.engine import Connection, Engine
+from sqlalchemy.exc import IntegrityError
 
 from .config import settings
 
 SESSION_TTL_SECONDS = 7 * 24 * 60 * 60
 PASSWORD_ITERATIONS = 310_000
 
+metadata = MetaData()
+users = Table(
+    "users",
+    metadata,
+    Column("id", String, primary_key=True),
+    Column("email", String, nullable=False),
+    Column("username", String),
+    Column("password_hash", String, nullable=False),
+    Column("created_at", BigInteger, nullable=False),
+)
+sessions = Table(
+    "sessions",
+    metadata,
+    Column("token_hash", String, primary_key=True),
+    Column("user_id", String, ForeignKey("users.id", ondelete="CASCADE"), nullable=False),
+    Column("expires_at", BigInteger, nullable=False),
+)
+job_history = Table(
+    "job_history",
+    metadata,
+    Column("job_id", String, primary_key=True),
+    Column("user_id", String, ForeignKey("users.id", ondelete="CASCADE"), nullable=False),
+    Column("filename", String, nullable=False),
+    Column("status", String, nullable=False),
+    Column("created_at", Float, nullable=False),
+    Column("completed_at", Float),
+    Column("stems", Text, nullable=False, server_default="[]"),
+)
+Index("users_email_lower_unique", func.lower(users.c.email), unique=True)
+Index(
+    "users_username_lower_unique",
+    func.lower(users.c.username),
+    unique=True,
+    postgresql_where=users.c.username.is_not(None),
+    sqlite_where=users.c.username.is_not(None),
+)
+Index("sessions_user_id_idx", sessions.c.user_id)
+Index("job_history_user_date_idx", job_history.c.user_id, job_history.c.created_at.desc())
+
 
 class AuthStore:
     def __init__(self) -> None:
-        self._db_path: Path | None = None
+        self._engine: Engine | None = None
+        self._engine_key: str | URL | None = None
+
+    def _database_url(self) -> str | URL:
+        if settings.database_url:
+            database_url = settings.database_url
+            if database_url.startswith("postgresql://"):
+                database_url = database_url.replace(
+                    "postgresql://", "postgresql+psycopg://", 1
+                )
+            return database_url
+        path = settings.storage_dir / "users.sqlite3"
+        path.parent.mkdir(parents=True, exist_ok=True)
+        return URL.create("sqlite", database=str(path.resolve()))
 
     def initialize(self) -> None:
-        path = settings.storage_dir / "users.sqlite3"
-        if self._db_path == path and path.is_file():
+        database_url = self._database_url()
+        if self._engine is not None and self._engine_key == database_url:
             return
-        path.parent.mkdir(parents=True, exist_ok=True)
-        with sqlite3.connect(path) as db:
-            db.execute("PRAGMA journal_mode=WAL")
-            db.executescript(
-                """
-                CREATE TABLE IF NOT EXISTS users (
-                    id TEXT PRIMARY KEY,
-                    email TEXT NOT NULL UNIQUE COLLATE NOCASE,
-                    username TEXT,
-                    password_hash TEXT NOT NULL,
-                    created_at INTEGER NOT NULL
-                );
-                CREATE TABLE IF NOT EXISTS sessions (
-                    token_hash TEXT PRIMARY KEY,
-                    user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-                    expires_at INTEGER NOT NULL
-                );
-                CREATE INDEX IF NOT EXISTS sessions_user_id_idx ON sessions(user_id);
-                CREATE TABLE IF NOT EXISTS job_history (
-                    job_id TEXT PRIMARY KEY,
-                    user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-                    filename TEXT NOT NULL,
-                    status TEXT NOT NULL,
-                    created_at REAL NOT NULL,
-                    completed_at REAL,
-                    stems TEXT NOT NULL DEFAULT '[]'
-                );
-                CREATE INDEX IF NOT EXISTS job_history_user_date_idx
-                ON job_history(user_id, created_at DESC);
-                """
-            )
-            columns = {row[1] for row in db.execute("PRAGMA table_info(users)")}
-            if "username" not in columns:
-                db.execute("ALTER TABLE users ADD COLUMN username TEXT")
-            db.execute(
-                "CREATE UNIQUE INDEX IF NOT EXISTS users_username_unique "
-                "ON users(username COLLATE NOCASE) WHERE username IS NOT NULL"
-            )
-        self._db_path = path
 
-    def _connect(self) -> sqlite3.Connection:
-        if self._db_path is None:
+        if self._engine is not None:
+            self._engine.dispose()
+
+        connect_args = {"timeout": 10} if str(database_url).startswith("sqlite") else {}
+        engine = create_engine(
+            database_url,
+            connect_args=connect_args,
+            pool_pre_ping=True,
+        )
+        if engine.dialect.name == "sqlite":
+            @event.listens_for(engine, "connect")
+            def enable_sqlite_options(dbapi_connection, _connection_record) -> None:
+                cursor = dbapi_connection.cursor()
+                cursor.execute("PRAGMA foreign_keys=ON")
+                cursor.execute("PRAGMA journal_mode=WAL")
+                cursor.close()
+
+            # Older SQLite databases may predate the username column.
+            with engine.begin() as connection:
+                existing_tables = inspect(connection).get_table_names()
+                if "users" in existing_tables:
+                    columns = {column["name"] for column in inspect(connection).get_columns("users")}
+                    if "username" not in columns:
+                        connection.exec_driver_sql("ALTER TABLE users ADD COLUMN username TEXT")
+
+        metadata.create_all(engine)
+        self._engine = engine
+        self._engine_key = database_url
+
+    def _connect(self) -> Connection:
+        if self._engine is None:
             raise RuntimeError("Auth store has not been initialized")
-        db = sqlite3.connect(self._db_path, timeout=10)
-        db.row_factory = sqlite3.Row
-        db.execute("PRAGMA foreign_keys=ON")
-        return db
+        return self._engine.connect()
 
     @staticmethod
     def _hash_password(password: str, salt: bytes | None = None) -> str:
@@ -81,25 +139,32 @@ class AuthStore:
         return hashlib.sha256(token.encode()).hexdigest()
 
     def create_user(self, email: str, username: str, password: str) -> dict[str, str] | None:
+        self.initialize()
         user_id = uuid.uuid4().hex
         try:
-            with self._connect() as db:
+            with self._connect() as db, db.begin():
                 db.execute(
-                    "INSERT INTO users (id, email, username, password_hash, created_at) "
-                    "VALUES (?, ?, ?, ?, ?)",
-                    (user_id, email, username, self._hash_password(password), int(time.time())),
+                    users.insert().values(
+                        id=user_id,
+                        email=email,
+                        username=username,
+                        password_hash=self._hash_password(password),
+                        created_at=int(time.time()),
+                    )
                 )
-        except sqlite3.IntegrityError:
+        except IntegrityError:
             return None
         return {"id": user_id, "email": email, "username": username}
 
     def verify_user(self, identifier: str, password: str) -> dict[str, str] | None:
+        self.initialize()
         with self._connect() as db:
             user = db.execute(
-                "SELECT id, email, username, password_hash FROM users "
-                "WHERE email = ? COLLATE NOCASE OR username = ? COLLATE NOCASE",
-                (identifier, identifier),
-            ).fetchone()
+                select(users.c.id, users.c.email, users.c.username, users.c.password_hash).where(
+                    (func.lower(users.c.email) == identifier.lower())
+                    | (func.lower(users.c.username) == identifier.lower())
+                )
+            ).mappings().first()
         if user is None:
             return None
         algorithm, rounds, salt_hex, expected_hex = user["password_hash"].split("$", 3)
@@ -113,48 +178,59 @@ class AuthStore:
         return {"id": user["id"], "email": user["email"], "username": user["username"] or ""}
 
     def update_username(self, user_id: str, username: str) -> dict[str, str] | None:
+        self.initialize()
         try:
-            with self._connect() as db:
-                db.execute("UPDATE users SET username = ? WHERE id = ?", (username, user_id))
+            with self._connect() as db, db.begin():
+                db.execute(update(users).where(users.c.id == user_id).values(username=username))
                 user = db.execute(
-                    "SELECT id, email, username FROM users WHERE id = ?", (user_id,)
-                ).fetchone()
-        except sqlite3.IntegrityError:
+                    select(users.c.id, users.c.email, users.c.username).where(users.c.id == user_id)
+                ).mappings().first()
+        except IntegrityError:
             return None
         if user is None:
             return None
         return {"id": user["id"], "email": user["email"], "username": user["username"] or ""}
 
     def create_session(self, user_id: str) -> str:
+        self.initialize()
         token = secrets.token_urlsafe(32)
         now = int(time.time())
-        with self._connect() as db:
-            db.execute("DELETE FROM sessions WHERE expires_at <= ?", (now,))
+        with self._connect() as db, db.begin():
+            db.execute(sessions.delete().where(sessions.c.expires_at <= now))
             db.execute(
-                "INSERT INTO sessions (token_hash, user_id, expires_at) VALUES (?, ?, ?)",
-                (self._session_hash(token), user_id, now + SESSION_TTL_SECONDS),
+                sessions.insert().values(
+                    token_hash=self._session_hash(token),
+                    user_id=user_id,
+                    expires_at=now + SESSION_TTL_SECONDS,
+                )
             )
         return token
 
     def get_session_user(self, token: str | None) -> dict[str, str] | None:
         if not token:
             return None
+        self.initialize()
         with self._connect() as db:
             row = db.execute(
-                """
-                SELECT users.id, users.email, users.username FROM sessions
-                JOIN users ON users.id = sessions.user_id
-                WHERE sessions.token_hash = ? AND sessions.expires_at > ?
-                """,
-                (self._session_hash(token), int(time.time())),
-            ).fetchone()
-        return {"id": row["id"], "email": row["email"], "username": row["username"] or ""} if row else None
+                select(users.c.id, users.c.email, users.c.username)
+                .select_from(sessions.join(users, users.c.id == sessions.c.user_id))
+                .where(
+                    sessions.c.token_hash == self._session_hash(token),
+                    sessions.c.expires_at > int(time.time()),
+                )
+            ).mappings().first()
+        return (
+            {"id": row["id"], "email": row["email"], "username": row["username"] or ""}
+            if row
+            else None
+        )
 
     def delete_session(self, token: str | None) -> None:
         if not token:
             return
-        with self._connect() as db:
-            db.execute("DELETE FROM sessions WHERE token_hash = ?", (self._session_hash(token),))
+        self.initialize()
+        with self._connect() as db, db.begin():
+            db.execute(sessions.delete().where(sessions.c.token_hash == self._session_hash(token)))
 
     def record_job(
         self,
@@ -165,15 +241,24 @@ class AuthStore:
         status: str = "uploaded",
     ) -> None:
         self.initialize()
-        with self._connect() as db:
-            db.execute(
-                """
-                INSERT INTO job_history (job_id, user_id, filename, status, created_at)
-                VALUES (?, ?, ?, ?, ?)
-                ON CONFLICT(job_id) DO UPDATE SET status = excluded.status
-                """,
-                (job_id, user_id, filename, status, created_at),
-            )
+        with self._connect() as db, db.begin():
+            existing = db.execute(
+                select(job_history.c.job_id).where(job_history.c.job_id == job_id)
+            ).first()
+            if existing:
+                db.execute(
+                    update(job_history).where(job_history.c.job_id == job_id).values(status=status)
+                )
+            else:
+                db.execute(
+                    job_history.insert().values(
+                        job_id=job_id,
+                        user_id=user_id,
+                        filename=filename,
+                        status=status,
+                        created_at=created_at,
+                    )
+                )
 
     def update_job_history(
         self,
@@ -183,39 +268,35 @@ class AuthStore:
         stems: tuple[str, ...] | list[str] | None = None,
     ) -> None:
         self.initialize()
-        assignments = ["status = ?"]
-        values: list[object] = [status]
+        values: dict[str, object] = {"status": status}
         if completed_at is not None:
-            assignments.append("completed_at = ?")
-            values.append(completed_at)
+            values["completed_at"] = completed_at
         if stems is not None:
-            assignments.append("stems = ?")
-            values.append(json.dumps(stems))
-        values.append(job_id)
-        with self._connect() as db:
-            db.execute(
-                f"UPDATE job_history SET {', '.join(assignments)} WHERE job_id = ?",
-                values,
-            )
+            values["stems"] = json.dumps(stems)
+        with self._connect() as db, db.begin():
+            db.execute(update(job_history).where(job_history.c.job_id == job_id).values(**values))
 
     def delete_job_history(self, job_id: str) -> None:
         self.initialize()
-        with self._connect() as db:
-            db.execute("DELETE FROM job_history WHERE job_id = ?", (job_id,))
+        with self._connect() as db, db.begin():
+            db.execute(job_history.delete().where(job_history.c.job_id == job_id))
 
     def list_job_history(self, user_id: str, limit: int = 100) -> list[dict[str, object]]:
         self.initialize()
         with self._connect() as db:
             rows = db.execute(
-                """
-                SELECT job_id, filename, status, created_at, completed_at, stems
-                FROM job_history
-                WHERE user_id = ?
-                ORDER BY created_at DESC
-                LIMIT ?
-                """,
-                (user_id, limit),
-            ).fetchall()
+                select(
+                    job_history.c.job_id,
+                    job_history.c.filename,
+                    job_history.c.status,
+                    job_history.c.created_at,
+                    job_history.c.completed_at,
+                    job_history.c.stems,
+                )
+                .where(job_history.c.user_id == user_id)
+                .order_by(job_history.c.created_at.desc())
+                .limit(limit)
+            ).mappings().all()
         return [
             {
                 "job_id": row["job_id"],

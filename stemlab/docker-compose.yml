@@ -1,4 +1,18 @@
 services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-stemlab}
+      POSTGRES_USER: ${POSTGRES_USER:-stemlab}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-stemlab-dev-password}
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-stemlab} -d ${POSTGRES_DB:-stemlab}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
   redis:
     image: redis:7-alpine
 
@@ -6,16 +20,20 @@ services:
     build: ./backend
     environment: &env
       REDIS_URL: redis://redis:6379/0
+      DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-stemlab}:${POSTGRES_PASSWORD:-stemlab-dev-password}@postgres:5432/${POSTGRES_DB:-stemlab}
       STORAGE_DIR: /data
       SEPARATOR: ${SEPARATOR:-demucs}
-      CORS_ORIGINS: http://localhost:5173,http://127.0.0.1:5173
+      CORS_ORIGINS: http://localhost:5173,http://127.0.0.1:5173,https://tuning-egg-for-codes.trycloudflare.com/
       AUTH_COOKIE_SECURE: ${AUTH_COOKIE_SECURE:-false}
     volumes:
       - storage:/data
     ports:
       - "8000:8000"
     depends_on:
-      - redis
+      redis:
+        condition: service_started
+      postgres:
+        condition: service_healthy
 
   worker:
     build: ./backend
@@ -25,8 +43,12 @@ services:
       - storage:/data
       - model-cache:/root/.cache/torch   # keeps the downloaded Demucs weights
     depends_on:
-      - redis
+      redis:
+        condition: service_started
+      postgres:
+        condition: service_healthy
 
 volumes:
+  postgres-data:
   storage:
   model-cache:

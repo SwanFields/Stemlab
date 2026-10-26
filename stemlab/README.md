@@ -7,7 +7,7 @@
 | ส่วน | เทคโนโลยี | งานหลัก |
 |---|---|---|
 | Web Frontend | React 19, TypeScript, Vite, Tailwind CSS v4, Web Audio API | อัปโหลด, polling สถานะ, Mixer, ดาวน์โหลด |
-| Backend API | Python, FastAPI, Celery, Redis, SQLite | สมัคร/เข้าสู่ระบบ, รับไฟล์, ตรวจไฟล์, จัดคิวงาน, ส่งไฟล์กลับ |
+| Backend API | Python, FastAPI, Celery, Redis, SQLAlchemy, PostgreSQL (SQLite สำหรับ local) | สมัคร/เข้าสู่ระบบ, รับไฟล์, ตรวจไฟล์, จัดคิวงาน, ส่งไฟล์กลับ |
 | Machine Learning | Demucs `htdemucs` (Meta) | แยกเสียง 4 สเต็ม |
 
 ## สถาปัตยกรรม
@@ -28,9 +28,10 @@
 ### บัญชีผู้ใช้และการจัดเก็บข้อมูล
 
 - สมัครด้วย Username (3-30 ตัว ใช้ a-z, 0-9 และ `_`), อีเมล และรหัสผ่านอย่างน้อย 10 ตัวอักษร โดยรหัสผ่านต้องมีตัวอักษรและตัวเลขอย่างน้อยชนิดละ 1 ตัว เข้าสู่ระบบได้ด้วยอีเมลหรือ Username รหัสผ่านถูกแฮชด้วย PBKDF2-HMAC-SHA256 พร้อม salt แบบสุ่ม (310,000 รอบ) ก่อนบันทึก ไม่มีการเก็บรหัสผ่านจริง
-- ข้อมูลบัญชีและเซสชันอยู่ใน SQLite ที่ `STORAGE_DIR/users.sqlite3` ซึ่งใน Docker คือ `/data/users.sqlite3` บน volume `storage` ข้อมูลบัญชีจึงอยู่ต่อแม้รีสตาร์ตคอนเทนเนอร์
-- ประวัติการประมวลผลเก็บในตาราง `job_history` ของ SQLite เดียวกัน แยกตามบัญชี เก็บชื่อไฟล์ สถานะ แทร็ก และเวลาที่งานสำเร็จ แม้ไฟล์เสียง/สถานะชั่วคราวจะถูกลบตามอายุงาน
-- โครงสร้างตารางและความสัมพันธ์สำหรับเปิดดูใน DrawDB อยู่ใน [`database_schema.sql`](./database_schema.sql) โดยแสดงความสัมพันธ์ `users` กับ `sessions` และ `job_history`; สถานะงานชั่วคราวเก็บใน Redis และไฟล์เสียงเก็บใน storage จึงไม่อยู่ใน ER diagram ของ SQLite
+- ข้อมูลบัญชี เซสชัน และประวัติการประมวลผลใช้ SQLAlchemy รองรับ PostgreSQL หรือ SQLite แยกตาม `DATABASE_URL`; เมื่อไม่กำหนด URL จะใช้ SQLite ที่ `STORAGE_DIR/users.sqlite3`
+- Docker Compose รัน PostgreSQL 16 และบันทึกข้อมูลใน volume `postgres-data`; API และ worker ใช้ฐานข้อมูลเดียวกัน ส่วนสถานะงานชั่วคราวยังอยู่ใน Redis และไฟล์เสียงยังอยู่ใน volume `storage`
+- โครงสร้างตารางและความสัมพันธ์สำหรับเปิดดูใน DrawDB อยู่ใน [`database_schema.sql`](./database_schema.sql) โดยแสดงความสัมพันธ์ `users` กับ `sessions` และ `job_history`
+- การเริ่มแอปจะสร้างตารางที่ยังไม่มีให้อัตโนมัติ แต่ไม่ได้ย้ายข้อมูลเดิมจาก SQLite ไป PostgreSQL; ต้องคง SQLite เดิมไว้หรือย้ายข้อมูลก่อนสลับ `DATABASE_URL`
 - หน้าเว็บแสดงประวัติล่าสุดไม่เกิน 100 งาน เวลาสำเร็จแสดงตามเขตเวลาไทย; งานที่ประมวลผลก่อนเพิ่มระบบประวัติจะไม่ถูกนำเข้าย้อนหลัง
 - เปิดมิกเซอร์จากประวัติได้เมื่องานยังอยู่ใน Redis และไฟล์ WAV ของทุกแทร็กยังอยู่ใน storage; ประวัติยังคงแสดงหลังไฟล์หมดอายุ แต่จะเปิดมิกเซอร์ไม่ได้
 - หน้าแดชบอร์ดแสดง Username, อีเมล และสถานะบัญชี และแก้ไข Username ได้ โดย Username ใหม่ต้องไม่ซ้ำและใช้รูปแบบเดิม รูปโปรไฟล์ (JPG/PNG/WebP ไม่เกิน 5 MB) จะถูกย่อและบันทึกใน local storage ของเบราว์เซอร์บนอุปกรณ์นั้น ไม่ได้อัปโหลดหรือซิงก์ไปยังเซิร์ฟเวอร์
@@ -42,7 +43,7 @@
 
 ```
 stemlab/
-├── docker-compose.yml          redis + api + worker
+├── docker-compose.yml          postgres + redis + api + worker
 ├── backend/
 │   ├── app/
 │   │   ├── main.py             REST endpoints (4 ตัวตามโจทย์ + /health)
@@ -86,6 +87,8 @@ npm --version
 ```powershell
 docker compose up --build
 ```
+
+Compose starts PostgreSQL alongside Redis, API, and worker. Its development defaults are `stemlab` / `stemlab-dev-password`; set `POSTGRES_DB`, `POSTGRES_USER`, and `POSTGRES_PASSWORD` in the project-root `.env` before using this setup beyond local development. PostgreSQL data persists in the `postgres-data` volume.
 
 เปิด Terminal อีกหน้าต่างเพื่อรัน Frontend:
 

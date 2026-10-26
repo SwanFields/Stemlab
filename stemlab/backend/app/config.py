@@ -13,6 +13,7 @@ class Settings(BaseSettings):
 
     redis_url: str = "redis://localhost:6379/0"
     storage_dir: Path = Path("./storage")
+    database_url: str | None = None
     max_upload_mb: int = 50
     cors_origins: str = "http://localhost:5173,http://127.0.0.1:5173"
     job_ttl_hours: int = 6
