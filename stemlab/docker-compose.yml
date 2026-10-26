@@ -23,7 +23,7 @@ services:
       DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-stemlab}:${POSTGRES_PASSWORD:-stemlab-dev-password}@postgres:5432/${POSTGRES_DB:-stemlab}
       STORAGE_DIR: /data
       SEPARATOR: ${SEPARATOR:-demucs}
-      CORS_ORIGINS: http://localhost:5173,http://127.0.0.1:5173,https://tuning-egg-for-codes.trycloudflare.com/
+      CORS_ORIGINS: http://localhost:5173
       AUTH_COOKIE_SECURE: ${AUTH_COOKIE_SECURE:-false}
     volumes:
       - storage:/data
