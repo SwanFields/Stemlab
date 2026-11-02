@@ -38,9 +38,7 @@ export interface HistoryItem {
   available: boolean;
 }
 
-const BASE: string = import.meta.env.VITE_API_BASE || (
-  import.meta.env.PROD ? "https://stemlab-rn5j.onrender.com" : ""
-);
+const BASE: string = import.meta.env.DEV ? (import.meta.env.VITE_API_BASE || "") : "";
 const NETWORK_MESSAGE = "เชื่อมต่อเซิร์ฟเวอร์ไม่ได้ ตรวจสอบว่า Backend ทำงานอยู่";
 
 export class ApiError extends Error {}

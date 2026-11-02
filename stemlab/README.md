@@ -103,6 +103,8 @@ npm run dev
 
 เปิดเว็บที่ `http://localhost:5173`; API อยู่ที่ `http://localhost:8000` และเอกสาร API อยู่ที่ `http://localhost:8000/docs` ครั้งแรก worker จะดาวน์โหลดน้ำหนักโมเดล Demucs โดยอัตโนมัติและเก็บไว้ใน Docker volume `model-cache` จึงอาจใช้เวลานานและต้องเชื่อมต่ออินเทอร์เน็ต
 
+บน Vercel Frontend จะใช้ `/api/*` ผ่าน rewrite ใน `frontend/vercel.json` ไปยัง Render เพื่อให้ session cookie อยู่บนโดเมนเดียวกับหน้าเว็บและทำงานได้ในโหมด Incognito ด้วย
+
 หยุดบริการ Docker ด้วย `Ctrl+C` ใน Terminal ที่รัน `docker compose up` หรือใช้ `docker compose down` จากโฟลเดอร์โปรเจกต์
 
 ### ทางที่ 2: รันแยกบริการ
