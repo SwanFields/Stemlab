@@ -39,6 +39,9 @@ def run_demucs(input_path: Path, out_dir: Path, on_progress: ProgressFn) -> None
         "-n", settings.demucs_model,
         "-o", str(work),
         "--filename", "{stem}.{ext}",
+        "--segment", str(settings.demucs_segment),
+        "--shifts", str(settings.demucs_shifts),
+        "--jobs", str(settings.demucs_jobs),
     ]
     if settings.demucs_device != "auto":
         cmd += ["-d", settings.demucs_device]

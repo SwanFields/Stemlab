@@ -24,6 +24,9 @@ class Settings(BaseSettings):
     separator: str = "demucs"
     demucs_model: str = "htdemucs"
     demucs_device: str = "auto"  # auto | cpu | cuda | mps
+    demucs_segment: int = 4
+    demucs_jobs: int = 1
+    demucs_shifts: int = 1
 
     @property
     def max_upload_bytes(self) -> int:
