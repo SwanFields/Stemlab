@@ -206,7 +206,7 @@ def register(credentials: RegistrationCredentials, response: Response) -> dict[s
         max_age=SESSION_TTL_SECONDS,
         httponly=True,
         secure=settings.auth_cookie_secure,
-        samesite="lax",
+        samesite=settings.auth_cookie_samesite,
         path="/",
     )
     return user
@@ -224,7 +224,7 @@ def login(credentials: LoginCredentials, response: Response) -> dict[str, str]:
         max_age=SESSION_TTL_SECONDS,
         httponly=True,
         secure=settings.auth_cookie_secure,
-        samesite="lax",
+        samesite=settings.auth_cookie_samesite,
         path="/",
     )
     return user
@@ -252,7 +252,13 @@ def logout(
     stemlab_session: str | None = Cookie(default=None),
 ) -> Response:
     auth_store.delete_session(stemlab_session)
-    response.delete_cookie("stemlab_session", path="/", httponly=True, samesite="lax")
+    response.delete_cookie(
+        "stemlab_session",
+        path="/",
+        httponly=True,
+        secure=settings.auth_cookie_secure,
+        samesite=settings.auth_cookie_samesite,
+    )
     response.status_code = 204
     return response
 

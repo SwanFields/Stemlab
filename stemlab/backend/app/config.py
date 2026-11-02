@@ -33,5 +33,9 @@ class Settings(BaseSettings):
     def cors_origin_list(self) -> list[str]:
         return [o.strip() for o in self.cors_origins.split(",") if o.strip()]
 
+    @property
+    def auth_cookie_samesite(self) -> str:
+        return "none" if self.auth_cookie_secure else "lax"
+
 
 settings = Settings()
