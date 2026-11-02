@@ -90,6 +90,8 @@ docker compose up --build
 
 Compose starts PostgreSQL alongside Redis, API, and worker. Its development defaults are `stemlab` / `stemlab-dev-password`; set `POSTGRES_DB`, `POSTGRES_USER`, and `POSTGRES_PASSWORD` in the project-root `.env` before using this setup beyond local development. PostgreSQL data persists in the `postgres-data` volume.
 
+เมื่อ deploy Backend ด้วย `backend/Dockerfile` บริการจะเริ่มทั้ง FastAPI และ Celery worker ใน container เดียว เพื่อให้คิวงานทำงานได้แม้ผู้ให้บริการมีเพียง Web Service เดียว
+
 เปิด Terminal อีกหน้าต่างเพื่อรัน Frontend:
 
 ```powershell
