@@ -1,7 +1,7 @@
 #!/bin/sh
 set -e
 
-celery -A app.celery_app.celery worker --loglevel=info --concurrency=1 &
+celery -A app.celery_app.celery worker --loglevel=info --pool=solo --concurrency=1 &
 worker_pid=$!
 
 cleanup() {
