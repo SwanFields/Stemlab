@@ -205,7 +205,7 @@ def register(credentials: RegistrationCredentials, response: Response) -> dict[s
         token,
         max_age=SESSION_TTL_SECONDS,
         httponly=True,
-        secure=settings.auth_cookie_secure,
+        secure=settings.auth_cookie_secure_effective,
         samesite=settings.auth_cookie_samesite,
         path="/",
     )
@@ -223,7 +223,7 @@ def login(credentials: LoginCredentials, response: Response) -> dict[str, str]:
         token,
         max_age=SESSION_TTL_SECONDS,
         httponly=True,
-        secure=settings.auth_cookie_secure,
+        secure=settings.auth_cookie_secure_effective,
         samesite=settings.auth_cookie_samesite,
         path="/",
     )
@@ -256,7 +256,7 @@ def logout(
         "stemlab_session",
         path="/",
         httponly=True,
-        secure=settings.auth_cookie_secure,
+        secure=settings.auth_cookie_secure_effective,
         samesite=settings.auth_cookie_samesite,
     )
     response.status_code = 204

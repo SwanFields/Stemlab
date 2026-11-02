@@ -17,7 +17,7 @@ class Settings(BaseSettings):
     max_upload_mb: int = 50
     cors_origins: str = "http://localhost:5173,http://127.0.0.1:5173"
     job_ttl_hours: int = 6
-    auth_cookie_secure: bool = False
+    auth_cookie_secure: bool = True
 
     # "demucs" = real ML model (needs torch + demucs + ffmpeg)
     # "mock"   = classical DSP filters, only for development without a GPU/torch
@@ -38,7 +38,13 @@ class Settings(BaseSettings):
 
     @property
     def auth_cookie_samesite(self) -> str:
-        return "none" if self.auth_cookie_secure else "lax"
+        return "none" if self.auth_cookie_secure_effective else "lax"
+
+    @property
+    def auth_cookie_secure_effective(self) -> bool:
+        return self.auth_cookie_secure or any(
+            origin.lower().startswith("https://") for origin in self.cors_origin_list
+        )
 
 
 settings = Settings()
