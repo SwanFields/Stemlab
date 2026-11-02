@@ -18,6 +18,7 @@ from .store import store
 from .tasks import separate_task
 
 JOB_ID_RE = re.compile(r"^[0-9a-f]{32}$")
+VERCEL_ORIGIN_RE = re.compile(r"^https://[a-z0-9-]+\.vercel\.app$")
 CHUNK = 1024 * 1024
 
 
@@ -32,15 +33,21 @@ app = FastAPI(title="Stemlab API", version="1.0.0", lifespan=lifespan)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.cors_origin_list,
+    allow_origin_regex=VERCEL_ORIGIN_RE.pattern,
     allow_methods=["GET", "POST", "PUT", "DELETE"],
     allow_headers=["*"],
     allow_credentials=True,
 )
 
+
+def is_allowed_origin(origin: str) -> bool:
+    return origin in settings.cors_origin_list or VERCEL_ORIGIN_RE.fullmatch(origin) is not None
+
+
 @app.middleware("http")
 async def validate_cookie_request_origin(request: Request, call_next):
     origin = request.headers.get("origin")
-    if request.method in {"POST", "PUT", "DELETE"} and origin and origin not in settings.cors_origin_list:
+    if request.method in {"POST", "PUT", "DELETE"} and origin and not is_allowed_origin(origin):
         return JSONResponse(status_code=403, content={"detail": "Origin ไม่ได้รับอนุญาต"})
     return await call_next(request)
 
