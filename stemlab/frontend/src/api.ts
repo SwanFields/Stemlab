@@ -91,6 +91,10 @@ export const getHistory = () => request<HistoryItem[]>("/api/history");
 
 export const logout = () => request<void>("/api/auth/logout", { method: "POST" });
 
+function absoluteApiUrl(path: string): string {
+  return /^https?:\/\//i.test(path) ? path : `${BASE}${path}`;
+}
+
 /** POST /api/upload with upload progress (fetch cannot report that, XHR can). */
 export function uploadFile(
   file: File,
@@ -129,7 +133,13 @@ export const startProcessing = (jobId: string) =>
 export const cancelJob = (jobId: string) =>
   request<void>(`/api/jobs/${jobId}`, { method: "DELETE" });
 
-export const getStatus = (jobId: string) => request<JobInfo>(`/api/status/${jobId}`);
+export const getStatus = async (jobId: string): Promise<JobInfo> => {
+  const job = await request<JobInfo>(`/api/status/${jobId}`);
+  return {
+    ...job,
+    stems: job.stems.map((stem) => ({ ...stem, url: absoluteApiUrl(stem.url) })),
+  };
+};
 
 export const getHealth = () => request<Health>("/api/health");
 
