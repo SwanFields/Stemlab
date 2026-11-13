@@ -28,6 +28,8 @@ export default function TrackStrip({ player, track, index }: Props) {
   const label = LABELS[track.name] ?? { en: track.name, th: "" };
   const audible = player.isAudible(track);
   const fill = (track.volume / MAX_VOLUME) * 100;
+  const panPct = Math.round(Math.abs(track.pan) * 100);
+  const panText = panPct === 0 ? "C" : `${track.pan < 0 ? "L" : "R"}${panPct}`;
 
   return (
     <div
@@ -70,10 +72,28 @@ export default function TrackStrip({ player, track, index }: Props) {
             style={{ "--fill": `${fill}%` } as CSSProperties}
             aria-label={t(`ความดัง ${label.th}`, `${label.en} volume`)}
             onChange={(e) => player.setVolume(track.name, Number(e.target.value))}
+            onDoubleClick={() => player.setVolume(track.name, 1)}
           />
           <output className="w-11 shrink-0 text-right text-xs tabular-nums text-neutral-400">
             {Math.round(track.volume * 100)}%
           </output>
+        </div>
+
+        <div className="mt-1 flex items-center gap-3">
+          <input
+            type="range"
+            className="fader pan-fader"
+            min={-1}
+            max={1}
+            step={0.01}
+            value={track.pan}
+            style={{ "--from": `${Math.min(50, 50 + track.pan * 50)}%`, "--to": `${Math.max(50, 50 + track.pan * 50)}%` } as CSSProperties}
+            aria-label={t(`แพน ${label.th}`, `${label.en} pan`)}
+            aria-valuetext={panText}
+            onChange={(e) => player.setPan(track.name, Number(e.target.value))}
+            onDoubleClick={() => player.setPan(track.name, 0)}
+          />
+          <output className="w-11 shrink-0 text-right text-xs tabular-nums text-neutral-400">{panText}</output>
         </div>
       </div>
 

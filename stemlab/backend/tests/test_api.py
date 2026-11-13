@@ -273,6 +273,13 @@ def test_full_flow_with_mock_separator(client):
         with wave.open(io.BytesIO(r.content)) as w:
             assert w.getnchannels() == 2 and w.getnframes() > 0
 
+    # the untouched upload is available too, so the mixer can A/B against it
+    r = client.get(f"/api/download/{job_id}/original")
+    assert r.status_code == 200
+    assert r.headers["content-type"] == "audio/wav"
+    with wave.open(io.BytesIO(r.content)) as w:
+        assert w.getnframes() > 0
+
     r = client.get(f"/api/download/{job_id}/all")
     assert r.status_code == 200
     names = zipfile.ZipFile(io.BytesIO(r.content)).namelist()

@@ -425,6 +425,19 @@ def download(
             content_disposition_type="attachment",
         )
 
+    if track_name == "original":
+        # the uploaded song is kept next to the stems so the mixer can A/B against it
+        input_path = job_dir(job_id) / Path(job["input_file"]).name
+        if not input_path.is_file():
+            raise HTTPException(404, "ไม่พบไฟล์ต้นฉบับ")
+        media = {".mp3": "audio/mpeg", ".wav": "audio/wav", ".flac": "audio/flac"}
+        return FileResponse(
+            input_path,
+            media_type=media.get(input_path.suffix.lower(), "application/octet-stream"),
+            filename=f"{base}_original{input_path.suffix.lower()}",
+            content_disposition_type=disposition,
+        )
+
     stem = track_name.removesuffix(".wav")
     if stem not in STEMS:  # whitelist: no user text ever reaches the filesystem path
         raise HTTPException(404, "ไม่พบแทร็กนี้")

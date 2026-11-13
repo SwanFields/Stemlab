@@ -1,9 +1,11 @@
 import { useEffect, useState } from "react";
-import type { StemInfo } from "../api";
+import { stemUrl, type StemInfo } from "../api";
 import { StemPlayer } from "../audio/StemPlayer";
+import AbSwitch from "./AbSwitch";
 import ExportPanel from "./ExportPanel";
 import TrackStrip from "./TrackStrip";
 import Transport from "./Transport";
+import Visualizer from "./Visualizer";
 import { useLanguage } from "./Language";
 
 interface Props {
@@ -27,7 +29,7 @@ export default function Mixer({ jobId, filename, stems, onReset }: Props) {
     setLoaded(0);
     p.load(stems, (done) => {
       if (!cancelled) setLoaded(done);
-    })
+    }, stemUrl(jobId, "original"))
       .then(() => {
         if (!cancelled) setPlayer(p);
       })
@@ -38,7 +40,7 @@ export default function Mixer({ jobId, filename, stems, onReset }: Props) {
       cancelled = true;
       p.dispose();
     };
-  }, [stems, t]);
+  }, [jobId, stems, t]);
 
   if (error) {
     return (
@@ -82,6 +84,8 @@ export default function Mixer({ jobId, filename, stems, onReset }: Props) {
       </header>
 
       <Transport player={player} />
+      <AbSwitch player={player} />
+      <Visualizer player={player} />
 
       <div className="mixer-console-meta" aria-hidden="true">
         <span><i /> {t("แชนเนลแทร็ก", "CHANNEL STRIPS")}</span>
@@ -93,7 +97,7 @@ export default function Mixer({ jobId, filename, stems, onReset }: Props) {
         ))}
       </div>
 
-      <ExportPanel jobId={jobId} stems={stems} />
+      <ExportPanel jobId={jobId} filename={filename} stems={stems} player={player} />
     </section>
   );
 }
