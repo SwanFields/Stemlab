@@ -28,7 +28,7 @@ services:
     volumes:
       - storage:/data
     ports:
-      - "8000:8000"
+      - "8080:8000"
     command: uvicorn app.main:app --host 0.0.0.0 --port 8000
     depends_on:
       redis:
