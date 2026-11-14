@@ -104,7 +104,7 @@ export default function App() {
   const { t, language } = useLanguage();
   const [phase, setPhase] = useState<Phase>({ name: "idle" });
   const [health, setHealth] = useState<Health | "offline" | null>(null);
-  const [page, setPage] = useState<"home" | "how-it-works" | "studio" | "daw" | "history" | "history-mixer" | "account" | "auth">(() => getPageFromPath());
+  const [page, setPage] = useState<"home" | "how-it-works" | "studio" | "daw" | "history" | "history-mixer" | "account" | "auth" | "contact">(() => getPageFromPath());
   const [historyJobId, setHistoryJobId] = useState<string | null>(() => getHistoryJobIdFromPath());
   const [dawJob, setDawJob] = useState<string | null>(() => getDawJobFromUrl());
   const [historyJob, setHistoryJob] = useState<JobInfo | null>(null);
@@ -317,6 +317,10 @@ export default function App() {
     );
   }
 
+  if (page === "contact") {
+    return <ContactUsPage onHome={() => navigate("home")} />;
+  }
+
   if (page === "auth" || ((page === "studio" || page === "history" || page === "history-mixer" || page === "account") && !authLoading && !user)) {
     return <AuthPage onAuthenticated={handleAuthenticated} onHome={() => navigate("home")} />;
   }
@@ -361,10 +365,11 @@ export default function App() {
     return (
       <div className="studio-shell mx-auto min-h-screen max-w-5xl px-4 pb-20 pt-8 sm:px-8">
         <header className="flex flex-wrap items-center justify-between gap-4 border-b border-neutral-900 pb-6">
-          <button className="text-lg font-semibold tracking-tight text-white" onClick={() => navigate("home")}>
+          <button className="landing-brand-wordmark" onClick={() => navigate("home")}>
             Stemlab
           </button>
           <div className="flex items-center gap-5">
+            <button className="text-sm text-neutral-400 transition hover:text-white" onClick={() => goTo("/contact")}>{t("ติดต่อเรา", "Contact us")}</button>
             <button className="text-sm text-neutral-400 transition hover:text-white" onClick={() => navigate("history")}>
               ← {t("ประวัติ STEM", "STEM history")}
             </button>
@@ -408,7 +413,7 @@ export default function App() {
   return (
     <div className="studio-shell mx-auto min-h-screen max-w-5xl px-4 pb-20 pt-8 sm:px-8">
       <header className="flex items-center justify-between border-b border-neutral-900 pb-6">
-        <button className="text-lg font-semibold tracking-tight text-white" onClick={() => navigate("home")}>
+        <button className="landing-brand-wordmark" onClick={() => navigate("home")} aria-label="Stemlab home">
           Stemlab
         </button>
         <div className="flex items-center gap-5">
@@ -418,6 +423,7 @@ export default function App() {
           <button className="text-sm text-neutral-400 transition hover:text-white" onClick={() => navigate("how-it-works")}>
           {t("วิธีการทำงาน", "How it works")}
           </button>
+          <button className="text-sm text-neutral-400 transition hover:text-white" onClick={() => goTo("/contact")}>{t("ติดต่อเรา", "Contact us")}</button>
           <button className="text-sm text-neutral-400 transition hover:text-white" onClick={() => navigate("home")}>
             {t("หน้าหลัก", "Home")}
           </button>
@@ -489,13 +495,14 @@ export default function App() {
   );
 }
 
-function getPageFromPath(): "home" | "how-it-works" | "studio" | "daw" | "history" | "history-mixer" | "account" | "auth" {
+function getPageFromPath(): "home" | "how-it-works" | "studio" | "daw" | "history" | "history-mixer" | "account" | "auth" | "contact" {
   if (/^\/history\/[0-9a-f]{32}$/.test(window.location.pathname)) return "history-mixer";
   if (window.location.pathname === "/studio") return "studio";
   if (window.location.pathname === "/daw") return "daw";
   if (window.location.pathname === "/how-it-works") return "how-it-works";
   if (window.location.pathname === "/history") return "history";
   if (window.location.pathname === "/account") return "account";
+  if (window.location.pathname === "/contact") return "contact";
   if (window.location.pathname === "/login" || window.location.pathname === "/register") return "auth";
   return "home";
 }
@@ -628,6 +635,7 @@ function HomePage({
           <a className="landing-nav-features-link hidden text-neutral-400 transition hover:text-white sm:inline" href="#features">{t("ความสามารถ", "Features")}</a>
           <button className="daw-cta landing-nav-daw" onClick={() => goTo("/daw")}><span className="daw-cta-bars" aria-hidden="true"><i /><i /><i /><i /></span>Mini DAW<span aria-hidden="true">↗</span></button>
           <button className="hidden text-neutral-400 transition hover:text-white sm:inline" onClick={onHowItWorks}>{t("วิธีการทำงาน", "How it works")}</button>
+          <button className="hidden text-neutral-400 transition hover:text-white sm:inline" onClick={() => goTo("/contact")}>{t("ติดต่อเรา", "Contact us")}</button>
           {user ? (
             <>
               <AccountMenu user={user} onAccount={onAccount} onHistory={onHistory} onLogout={onLogout} />
@@ -749,9 +757,10 @@ function HomePage({
         </section>
       </main>
 
-      <footer className="mx-auto flex max-w-6xl flex-col gap-3 border-t border-white/[0.08] px-5 py-6 text-xs text-neutral-500 sm:flex-row sm:items-center sm:justify-between sm:px-8">
-        <span className="font-medium text-neutral-300">Stemlab</span>
-        <span>{t("แยกเสียงเพลง แล้วสร้างสรรค์ต่อในแบบของคุณ", "Separate your music and keep creating your way.")}</span>
+      <footer className="mx-auto flex max-w-6xl flex-col gap-5 border-t border-white/[0.08] px-5 py-6 text-xs text-neutral-500 sm:px-8">
+        <span className="font-medium text-neutral-300 stemlab-footer-wordmark">Stemlab</span>
+        <div className="flex flex-wrap items-center gap-5"><span>{t("แยกเสียงเพลง แล้วสร้างสรรค์ต่อในแบบของคุณ", "Separate your music and keep creating your way.")}</span><button className="transition hover:text-white" onClick={() => goTo("/contact")}>{t("ติดต่อเรา", "Contact us")} ↗</button></div>
+        <ContactDetails />
       </footer>
     </div>
   );
@@ -808,11 +817,11 @@ function HowItWorksPage({
     <div className="landing-page info-page min-h-screen">
       <header className="landing-nav mx-auto flex max-w-6xl items-center justify-between px-5 py-5 sm:px-8">
         <button className="flex items-center gap-3 font-semibold tracking-tight text-white" onClick={onHome} aria-label={t("กลับหน้าหลัก", "Back to home")}>
-          <span className="brand-mark" aria-hidden="true"><span /><span /><span /><span /></span>
-          <span className="text-xl">Stemlab</span>
+          <span className="landing-brand-wordmark">Stemlab</span>
         </button>
         <nav className="flex items-center gap-5 text-sm">
           <button className="text-neutral-400 transition hover:text-white" onClick={onHome}>{t("หน้าหลัก", "Home")}</button>
+          <button className="text-neutral-400 transition hover:text-white" onClick={() => goTo("/contact")}>{t("ติดต่อเรา", "Contact us")}</button>
           {user ? (
             <>
               <AccountMenu user={user} onAccount={onAccount} onHistory={onHistory} onLogout={onLogout} />
@@ -935,10 +944,158 @@ function HowItWorksPage({
         </section>
       </main>
 
-      <footer className="mx-auto flex max-w-6xl flex-col gap-3 border-t border-white/[0.08] px-5 py-6 text-xs text-neutral-500 sm:flex-row sm:items-center sm:justify-between sm:px-8">
-        <span className="font-medium text-neutral-300">Stemlab</span>
-        <button className="text-left transition hover:text-white" onClick={onHome}>{t("กลับหน้าหลัก", "Back to home")}</button>
+      <footer className="mx-auto flex max-w-6xl flex-col gap-5 border-t border-white/[0.08] px-5 py-6 text-xs text-neutral-500 sm:px-8">
+        <span className="font-medium text-neutral-300 stemlab-footer-wordmark">Stemlab</span>
+        <div className="flex gap-5"><button className="text-left transition hover:text-white" onClick={() => goTo("/contact")}>{t("ติดต่อเรา", "Contact us")}</button><button className="text-left transition hover:text-white" onClick={onHome}>{t("กลับหน้าหลัก", "Back to home")}</button></div>
+        <ContactDetails />
       </footer>
+    </div>
+  );
+}
+
+function ContactUsPage({ onHome }: { onHome: () => void }) {
+  const { t } = useLanguage();
+  const [name, setName] = useState("");
+  const [email, setEmail] = useState("");
+  const [topic, setTopic] = useState("technical");
+  const [message, setMessage] = useState("");
+  const [copied, setCopied] = useState(false);
+  const [error, setError] = useState("");
+
+  const prepareMessage = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    setError("");
+    const topicLabel = topic === "technical"
+      ? t("ปัญหาทางเทคนิค", "Technical support")
+      : topic === "account" ? t("บัญชีและการใช้งาน", "Account and usage")
+        : topic === "feedback" ? t("ข้อเสนอแนะ", "Feedback")
+          : t("ธุรกิจและความร่วมมือ", "Business and partnerships");
+    const content = `${t("ติดต่อ Stemlab", "Stemlab contact request")}\n${t("ชื่อ", "Name")}: ${name}\n${t("อีเมลสำหรับตอบกลับ", "Reply email")}: ${email}\n${t("หัวข้อ", "Topic")}: ${topicLabel}\n\n${message}`;
+    try {
+      await navigator.clipboard.writeText(content);
+      setCopied(true);
+    } catch {
+      setError(t("ไม่สามารถคัดลอกอัตโนมัติได้ กรุณาเลือกและคัดลอกข้อความด้วยตนเอง", "Automatic copy is unavailable. Please select and copy your message manually."));
+    }
+  };
+
+  return (
+    <div className="landing-page contact-page min-h-screen">
+      <header className="landing-nav mx-auto flex max-w-6xl items-center justify-between px-5 py-5 sm:px-8">
+        <button className="landing-brand-wordmark" onClick={onHome} aria-label={t("กลับหน้าหลัก Stemlab", "Back to Stemlab home")}>Stemlab</button>
+        <nav className="flex items-center gap-4 text-sm">
+          <span className="text-accent">{t("ติดต่อเรา", "Contact us")}</span>
+          <button className="text-neutral-400 transition hover:text-white" onClick={onHome}>{t("หน้าหลัก", "Home")}</button>
+        </nav>
+      </header>
+
+      <main className="mx-auto max-w-6xl px-5 pb-20 pt-14 sm:px-8 md:pt-20">
+        <section className="contact-hero">
+          <p className="eyebrow"><span className="status-dot" /> {t("เราพร้อมรับฟัง", "WE’RE HERE TO LISTEN")}</p>
+          <h1 className="mt-5 max-w-3xl text-4xl font-semibold leading-tight tracking-tight text-white sm:text-5xl md:text-6xl">{t("คุยกับทีม Stemlab", "Talk to the Stemlab team")}</h1>
+          <p className="mt-5 max-w-2xl text-base leading-8 text-neutral-400 sm:text-lg">{t("มีคำถาม เจอปัญหา หรืออยากเสนอไอเดียใหม่ ๆ ส่งรายละเอียดมาได้เลย เราอยากช่วยให้ประสบการณ์การทำเพลงของคุณราบรื่นขึ้น", "Have a question, run into an issue, or have an idea to share? Tell us about it. We want to make your music workflow better.")}</p>
+        </section>
+
+        <section className="mt-12 grid gap-5 lg:grid-cols-[0.85fr_1.15fr]">
+          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-1">
+            <article className="contact-info-card">
+              <span className="contact-card-index">01 / SUPPORT</span>
+              <h2>{t("ความช่วยเหลือด้านการใช้งาน", "Product support")}</h2>
+              <p>{t("แจ้งปัญหาการอัปโหลด การแยกเสียง การมิกซ์ หรือการดาวน์โหลดไฟล์", "Get help with uploads, audio separation, mixing, or downloading your files.")}</p>
+            </article>
+            <article className="contact-info-card">
+              <span className="contact-card-index">02 / ACCOUNT</span>
+              <h2>{t("บัญชีและความปลอดภัย", "Account and security")}</h2>
+              <p>{t("สอบถามเรื่องการเข้าสู่ระบบ โปรไฟล์ การตั้งค่าบัญชี และข้อมูลการใช้งาน", "Ask about sign-in, your profile, account settings, and usage information.")}</p>
+            </article>
+            <article className="contact-info-card">
+              <span className="contact-card-index">03 / COLLABORATE</span>
+              <h2>{t("ข้อเสนอแนะและความร่วมมือ", "Feedback and partnerships")}</h2>
+              <p>{t("แบ่งปันความคิดเห็น เสนอฟีเจอร์ หรือพูดคุยเรื่องโปรเจกต์และความร่วมมือ", "Share feedback, suggest features, or discuss projects and potential collaborations.")}</p>
+            </article>
+            <div className="contact-channel-note">
+              <span className="contact-card-index">DIRECT CHANNEL</span>
+              <p className="mt-3 font-medium text-white">{t("ช่องทางอีเมลโดยตรง", "Direct email support")}</p>
+              <p className="mt-2 text-sm leading-6 text-neutral-400">{t("ยังไม่มีการตั้งค่าที่อยู่อีเมลสำหรับติดต่อในโปรเจกต์นี้ แบบฟอร์มด้านข้างจึงช่วยจัดเตรียมและคัดลอกข้อความให้คุณ โดยยังไม่ได้ส่งออกจากเว็บไซต์", "A public support email has not been configured in this project yet. Use the form to prepare and copy your message; it will not be sent from this website.")}</p>
+            </div>
+          </div>
+
+          <form className="contact-form" onSubmit={prepareMessage}>
+            <div className="flex flex-wrap items-start justify-between gap-3">
+              <div>
+                <p className="eyebrow">{t("ส่งข้อความถึงเรา", "SEND A MESSAGE")}</p>
+                <h2 className="mt-3 text-2xl font-semibold text-white">{t("เล่าให้เราฟังได้เลย", "How can we help?")}</h2>
+              </div>
+              <span className="contact-required">* {t("จำเป็นต้องกรอก", "Required")}</span>
+            </div>
+
+            <div className="mt-8 grid gap-5 sm:grid-cols-2">
+              <label className="contact-field">{t("ชื่อของคุณ", "Your name")} *
+                <input required maxLength={100} autoComplete="name" value={name} onChange={(e) => { setName(e.target.value); setCopied(false); }} placeholder={t("ชื่อที่ใช้ติดต่อ", "Your name")} />
+              </label>
+              <label className="contact-field">{t("อีเมลสำหรับตอบกลับ", "Reply email")} *
+                <input required type="email" maxLength={254} autoComplete="email" value={email} onChange={(e) => { setEmail(e.target.value); setCopied(false); }} placeholder="name@example.com" />
+              </label>
+            </div>
+            <label className="contact-field mt-5">{t("หัวข้อที่ต้องการติดต่อ", "What is this about?")} *
+              <select required value={topic} onChange={(e) => { setTopic(e.target.value); setCopied(false); }}>
+                <option value="technical">{t("ปัญหาทางเทคนิค", "Technical support")}</option>
+                <option value="account">{t("บัญชีและการใช้งาน", "Account and usage")}</option>
+                <option value="feedback">{t("ข้อเสนอแนะ / แจ้งบั๊ก", "Feedback / Bug report")}</option>
+                <option value="business">{t("ธุรกิจและความร่วมมือ", "Business and partnerships")}</option>
+              </select>
+            </label>
+            <label className="contact-field mt-5">{t("รายละเอียดข้อความ", "Your message")} *
+              <textarea required minLength={10} maxLength={5000} rows={7} value={message} onChange={(e) => { setMessage(e.target.value); setCopied(false); }} placeholder={t("อธิบายสิ่งที่ต้องการสอบถาม พร้อมรายละเอียดที่เกี่ยวข้อง...", "Describe your question and include any relevant details...")} />
+              <span className="contact-counter">{message.length.toLocaleString()} / 5,000</span>
+            </label>
+            <div className="mt-6 rounded border border-white/10 bg-white/[0.025] p-4 text-xs leading-6 text-neutral-400">{t("โปรดอย่าส่งรหัสผ่าน ข้อมูลบัตรชำระเงิน หรือข้อมูลส่วนตัวที่ไม่จำเป็น หากแจ้งปัญหา กรุณาระบุขั้นตอนที่ทำ อุปกรณ์/เบราว์เซอร์ และข้อความแจ้งเตือนที่พบ", "Please do not include passwords, payment card details, or unnecessary personal information. For technical issues, include the steps you took, your device/browser, and any error message.")}</div>
+            {error && <p className="mt-4 text-sm text-amber-300" role="alert">{error}</p>}
+            {copied && <p className="mt-4 text-sm text-emerald-400" role="status">{t("คัดลอกข้อความแล้ว นำไปวางในช่องทางติดต่อที่คุณสะดวกได้เลย", "Message copied. You can paste it into your preferred contact channel.")}</p>}
+            <button className="button mt-6 w-full sm:w-auto" type="submit">{t("คัดลอกข้อความติดต่อ", "Copy contact message")} <span aria-hidden="true">↗</span></button>
+            <p className="mt-3 text-xs leading-5 text-neutral-500">{t("การกดปุ่มนี้จะคัดลอกข้อความเท่านั้น ไม่ได้ส่งข้อความหรือสร้าง Ticket", "This button only copies your message. It does not send a message or create a support ticket.")}</p>
+          </form>
+        </section>
+
+        <section className="mt-16 border-t border-white/10 pt-10">
+          <p className="eyebrow">{t("เพื่อให้ช่วยได้เร็วขึ้น", "HELP US HELP YOU")}</p>
+          <h2 className="mt-4 text-2xl font-semibold text-white">{t("ข้อมูลที่ควรแนบเมื่อแจ้งปัญหา", "What to include in a support request")}</h2>
+          <div className="mt-6 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+            {[
+              [t("ขั้นตอนที่ทำ", "Steps to reproduce"), t("บอกลำดับการใช้งานก่อนเกิดปัญหา", "Describe what you did before the issue appeared.")],
+              [t("ไฟล์และรูปแบบ", "File details"), t("ระบุชนิดไฟล์และขนาดโดยประมาณ หากเกี่ยวข้อง", "Include the file type and approximate size, if relevant.")],
+              [t("อุปกรณ์ที่ใช้", "Your device"), t("แจ้งระบบปฏิบัติการและเบราว์เซอร์", "Tell us your operating system and browser.")],
+              [t("ภาพหน้าจอ", "Screenshots"), t("แนบภาพข้อความผิดพลาด โดยปิดบังข้อมูลส่วนตัวก่อน", "Share an error screenshot after hiding personal information.")],
+            ].map(([title, description], index) => <article className="contact-tip" key={index}><span>0{index + 1}</span><h3>{title}</h3><p>{description}</p></article>)}
+          </div>
+        </section>
+      </main>
+
+      <footer className="mx-auto flex max-w-6xl flex-col gap-5 border-t border-white/[0.08] px-5 py-6 text-xs text-neutral-500 sm:px-8">
+        <span className="font-medium text-neutral-300 stemlab-footer-wordmark">Stemlab</span>
+        <button className="transition hover:text-white" onClick={onHome}>{t("กลับหน้าหลัก", "Back to home")}</button>
+        <ContactDetails />
+      </footer>
+    </div>
+  );
+}
+
+function ContactDetails() {
+  const { t } = useLanguage();
+  return (
+    <div className="grid grid-cols-1 gap-3 border-t border-white/[0.06] pt-5 sm:grid-cols-3 sm:gap-6">
+      <div className="flex flex-col gap-1">
+        <span className="text-[10px] uppercase tracking-[0.18em] text-neutral-500">{t("โทรศัพท์", "Phone")}</span>
+        <span className="text-xs font-medium text-neutral-300">067-454-2547</span>
+      </div>
+      <div className="flex flex-col gap-1">
+        <span className="text-[10px] uppercase tracking-[0.18em] text-neutral-500">{t("อีเมล", "Email")}</span>
+        <span className="text-xs font-medium text-neutral-300">stemlab.contact@gmail.com</span>
+      </div>
+      <div className="flex flex-col gap-1">
+        <span className="text-[10px] uppercase tracking-[0.18em] text-neutral-500">{t("ที่อยู่", "Address")}</span>
+        <span className="text-xs font-medium text-neutral-300">BKK, Thailand</span>
+      </div>
     </div>
   );
 }
@@ -1245,19 +1402,19 @@ function AccountPage({
     <div className="landing-page info-page min-h-screen">
       <header className="landing-nav mx-auto flex max-w-6xl items-center justify-between px-5 py-5 sm:px-8">
         <button className="flex items-center gap-3 font-semibold tracking-tight text-white" onClick={onHome} aria-label={t("กลับหน้าหลัก", "Back to home")}>
-          <span className="brand-mark" aria-hidden="true"><span /><span /><span /><span /></span>
-          <span className="text-xl">Stemlab</span>
+          <span className="landing-brand-wordmark">Stemlab</span>
         </button>
         <nav className="flex items-center gap-3 sm:gap-5">
           <button className="text-sm text-neutral-400 transition hover:text-white" onClick={onHome}>
             {t("กลับหน้าหลัก", "Back to home")}
           </button>
+          <button className="text-sm text-neutral-400 transition hover:text-white" onClick={() => goTo("/contact")}>{t("ติดต่อเรา", "Contact us")}</button>
           <AccountMenu user={user} onAccount={() => undefined} onHistory={onHistory} onLogout={onLogout} />
           <button className="logout-button" onClick={onLogout}>{t("ออกจากระบบ", "Log out")}</button>
         </nav>
       </header>
 
-      <main className="mx-auto max-w-6xl px-5 py-12 sm:px-8 md:py-16">
+      <main className="account-dashboard mx-auto max-w-6xl px-5 py-12 sm:px-8 md:py-16">
         {error && <p className="mb-6 border-l-2 border-neutral-500 pl-3 text-sm text-neutral-300" role="alert">{translateError(error, language)}</p>}
         <p className="eyebrow"><span className="status-dot" /> {t("หน้าแดชบอร์ดส่วนตัว", "Personal dashboard")}</p>
         <h1 className="mt-5 text-4xl font-semibold tracking-tight text-white sm:text-5xl">{t("บัญชีของฉัน", "My account")}</h1>
@@ -1448,11 +1605,11 @@ function HistoryPage({
     <div className="landing-page info-page min-h-screen">
       <header className="landing-nav mx-auto flex max-w-6xl items-center justify-between px-5 py-5 sm:px-8">
         <button className="flex items-center gap-3 font-semibold tracking-tight text-white" onClick={onHome} aria-label={t("กลับหน้าหลัก", "Back to home")}>
-          <span className="brand-mark" aria-hidden="true"><span /><span /><span /><span /></span>
-          <span className="text-xl">Stemlab</span>
+          <span className="landing-brand-wordmark">Stemlab</span>
         </button>
         <nav className="flex items-center gap-5 text-sm">
           <button className="text-neutral-400 transition hover:text-white" onClick={onHome}>{t("หน้าหลัก", "Home")}</button>
+          <button className="text-neutral-400 transition hover:text-white" onClick={() => goTo("/contact")}>{t("ติดต่อเรา", "Contact us")}</button>
           {user && <AccountMenu user={user} onAccount={onAccount} onHistory={() => undefined} onLogout={onLogout} />}
           {user && <button className="logout-button" onClick={onLogout}>{t("ออกจากระบบ", "Log out")}</button>}
           <button className="button button-small" onClick={onStudio}>{t("แยกเพลงใหม่", "Separate a new song")} <span aria-hidden="true">↗</span></button>
@@ -1571,10 +1728,9 @@ function AuthPage({ onAuthenticated, onHome }: { onAuthenticated: (user: User) =
     <div className="landing-page auth-page flex min-h-screen flex-col">
       <header className="landing-nav mx-auto flex w-full max-w-6xl items-center justify-between px-5 py-5 sm:px-8">
         <button className="flex items-center gap-3 font-semibold tracking-tight text-white" onClick={onHome} aria-label={t("กลับหน้าหลัก", "Back to home")}>
-          <span className="brand-mark" aria-hidden="true"><span /><span /><span /><span /></span>
-          <span className="text-xl">Stemlab</span>
+          <span className="landing-brand-wordmark">Stemlab</span>
         </button>
-        <button className="text-sm text-neutral-400 transition hover:text-white" onClick={onHome}>{t("กลับหน้าหลัก", "Back to home")}</button>
+        <div className="flex items-center gap-4"><button className="text-sm text-neutral-400 transition hover:text-white" onClick={() => goTo("/contact")}>{t("ติดต่อเรา", "Contact us")}</button><button className="text-sm text-neutral-400 transition hover:text-white" onClick={onHome}>{t("กลับหน้าหลัก", "Back to home")}</button></div>
       </header>
       <main className="flex flex-1 items-center justify-center px-5 py-12">
         <section className="auth-card w-full max-w-md">
@@ -1748,11 +1904,11 @@ function DawPage({
     <div className="landing-page daw-page min-h-screen">
       <header className="landing-nav mx-auto flex max-w-[1680px] items-center justify-between px-5 py-4 sm:px-8">
         <button className="flex items-center gap-3 font-semibold tracking-tight text-white" onClick={onHome} aria-label={t("กลับหน้าหลัก", "Back to home")}>
-          <span className="brand-mark" aria-hidden="true"><span /><span /><span /><span /></span>
-          <span className="text-xl">Stemlab</span>
+          <span className="landing-brand-wordmark">Stemlab</span>
         </button>
         <nav className="flex items-center gap-5 text-sm">
           <button className="text-neutral-400 transition hover:text-white" onClick={onStudio}>{t("แยกเสียง", "Separate")}</button>
+          <button className="text-neutral-400 transition hover:text-white" onClick={() => goTo("/contact")}>{t("ติดต่อเรา", "Contact us")}</button>
           {user && <button className="hidden text-neutral-400 transition hover:text-white sm:inline" onClick={onHistory}>{t("ประวัติ STEM", "History")}</button>}
           {user ? (
             <>

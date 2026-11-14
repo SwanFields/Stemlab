@@ -178,14 +178,6 @@ function Daw({ engine, initialJobId }: { engine: DawEngine; initialJobId: string
   const totalBeats = totalBars * bpb;
   const laneWidth = totalBeats * ppb;
 
-  const clipBeatLen = useCallback(
-    (clip: DawClip) => {
-      const src = engine.sources.get(clip.sourceId);
-      return src ? clipBeats(clip, src, project.bpm) : 0;
-    },
-    [engine, project.bpm],
-  );
-
   // ---- zoom anchoring ------------------------------------------------------
   useLayoutEffect(() => {
     const a = zoomAnchor.current;
@@ -254,12 +246,6 @@ function Daw({ engine, initialJobId }: { engine: DawEngine; initialJobId: string
     },
     [],
   );
-
-  const trackFromY = useCallback((clientY: number) => {
-    const rect = lanesRef.current?.getBoundingClientRect();
-    if (!rect) return 0;
-    return Math.floor((clientY - rect.top) / LANE_H);
-  }, []);
 
   // ---- loading audio ---------------------------------------------------------
   const registerSource = useCallback(

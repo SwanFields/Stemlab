@@ -57,7 +57,12 @@ export interface Stats {
   months: MonthlyStat[];
 }
 
-const BASE: string = import.meta.env.DEV ? (import.meta.env.VITE_API_BASE || "") : "";
+const envApi = (import.meta.env.VITE_API_BASE as string | undefined)?.trim();
+const BASE: string = import.meta.env.DEV
+  ? (envApi || "")
+  : (envApi && !envApi.includes("localhost") && !envApi.includes("127.0.0.1")
+      ? envApi.replace(/\/+$/, "")
+      : "");
 const NETWORK_MESSAGE = "เชื่อมต่อเซิร์ฟเวอร์ไม่ได้ ตรวจสอบว่า Backend ทำงานอยู่";
 
 export class ApiError extends Error {
