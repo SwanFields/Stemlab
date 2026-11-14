@@ -27,7 +27,9 @@ import {
   type Project,
 } from "../audio/DawEngine";
 import { useFrame } from "../hooks";
+import { defaultFx, fxActive } from "../audio/FxChain";
 import ClipView from "./daw/ClipView";
+import FxPanel from "./daw/FxPanel";
 import Library from "./daw/Library";
 import {
   FILE_COLORS,
@@ -118,6 +120,7 @@ function Daw({ engine, initialJobId }: { engine: DawEngine; initialJobId: string
   const [busy, setBusy] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [exporting, setExporting] = useState(false);
+  const [fxTrackId, setFxTrackId] = useState<string | null>(null);
 
   const snap = snapSize(snapKey, bpb);
 
@@ -474,6 +477,7 @@ function Daw({ engine, initialJobId }: { engine: DawEngine; initialJobId: string
   const removeTrack = (id: string) => {
     if (engine.project.tracks.length <= 1) return;
     update((p) => ({ ...p, tracks: p.tracks.filter((tr) => tr.id !== id), clips: p.clips.filter((c) => c.track !== id) }));
+    setFxTrackId((cur) => (cur === id ? null : cur));
     setSelected(new Set());
   };
 
@@ -788,6 +792,7 @@ function Daw({ engine, initialJobId }: { engine: DawEngine; initialJobId: string
     return out;
   }, [drag, project.clips]);
 
+  const fxTrack = project.tracks.find((tr) => tr.id === fxTrackId) ?? null;
   const single = selectedClips.length === 1 ? selectedClips[0] : null;
   const singleSrc = single ? engine.sources.get(single.sourceId) : null;
   const subVisible = ppb >= 64;
@@ -964,6 +969,7 @@ function Daw({ engine, initialJobId }: { engine: DawEngine; initialJobId: string
                           />
                           <button type="button" className={`daw-chip${track.muted ? " is-on is-mute" : ""}`} aria-pressed={track.muted} onClick={() => setTrack(track.id, { muted: !track.muted }, true)} title={t("ปิดเสียง", "Mute")}>M</button>
                           <button type="button" className={`daw-chip${track.solo ? " is-on is-solo" : ""}`} aria-pressed={track.solo} onClick={() => setTrack(track.id, { solo: !track.solo }, true)} title={t("โซโล", "Solo")}>S</button>
+                          <button type="button" className={`daw-chip daw-chip-fx${fxActive(track.fx) ? " has-fx" : ""}${fxTrackId === track.id ? " is-open" : ""}`} aria-pressed={fxTrackId === track.id} onClick={() => setFxTrackId((cur) => (cur === track.id ? null : track.id))} title={t("เอฟเฟกต์ของแทร็ก", "Track effects")}>FX</button>
                           <button type="button" className="daw-chip daw-chip-del" onClick={() => removeTrack(track.id)} disabled={project.tracks.length <= 1} aria-label={t("ลบแทร็ก", "Delete track")} title={t("ลบแทร็ก", "Delete track")}>×</button>
                         </div>
                         <div className="daw-head-mix">
@@ -1042,6 +1048,18 @@ function Daw({ engine, initialJobId }: { engine: DawEngine; initialJobId: string
             </div>
           </div>
 
+          {/* Quick FX chain for the chosen track */}
+          {fxTrack && (
+            <FxPanel
+              key={fxTrack.id}
+              trackName={fxTrack.name}
+              fx={fxTrack.fx}
+              sampleRate={engine.ctx.sampleRate}
+              onChange={(fx, record) => setTrack(fxTrack.id, { fx }, record)}
+              onClose={() => setFxTrackId(null)}
+            />
+          )}
+
           {/* Inspector */}
           <div className="daw-inspector">
             {selectedClips.length === 0 && (
@@ -1096,7 +1114,7 @@ function Daw({ engine, initialJobId }: { engine: DawEngine; initialJobId: string
 }
 
 function newTrack(index: number): DawTrack {
-  return { id: uid("t"), name: `Track ${index + 1}`, volume: 0.9, pan: 0, muted: false, solo: false };
+  return { id: uid("t"), name: `Track ${index + 1}`, volume: 0.9, pan: 0, muted: false, solo: false, fx: defaultFx() };
 }
 
 // Keep emptyProject referenced so a future "New project" action can reuse it.

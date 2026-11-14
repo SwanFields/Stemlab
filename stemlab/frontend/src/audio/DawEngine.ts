@@ -14,6 +14,8 @@
  * any edit, so scheduling is always derived from the project state.
  */
 
+import { FxProcessor, defaultFx, fxTailSeconds, type TrackFx } from "./FxChain";
+
 export interface DawSource {
   id: string;
   name: string;
@@ -47,6 +49,8 @@ export interface DawTrack {
   pan: number;
   muted: boolean;
   solo: boolean;
+  /** Quick FX chain (filter / EQ / delay / reverb). */
+  fx: TrackFx;
 }
 
 export interface Project {
@@ -59,6 +63,7 @@ export interface Project {
 }
 
 export const PEAKS_PER_SECOND = 100;
+export { defaultFx };
 export const MIN_BPM = 40;
 export const MAX_BPM = 240;
 const DECLICK = 0.004; // seconds of fade at clip edges
@@ -187,6 +192,7 @@ function encodeWav(buffer: AudioBuffer): Blob {
 
 interface TrackNodes {
   gain: GainNode;
+  fx: FxProcessor;
   pan: StereoPannerNode;
   analyser: AnalyserNode;
 }
@@ -204,6 +210,7 @@ export function emptyProject(): Project {
       pan: 0,
       muted: false,
       solo: false,
+      fx: defaultFx(),
     })),
     clips: [],
     loop: { start: 0, end: 4 * 4, on: false },
@@ -346,6 +353,7 @@ export class DawEngine {
         n.analyser.disconnect();
         n.pan.disconnect();
         n.gain.disconnect();
+        n.fx.dispose();
         this.nodes.delete(id);
       }
     }
@@ -355,10 +363,12 @@ export class DawEngine {
       const pan = this.ctx.createStereoPanner();
       const analyser = this.ctx.createAnalyser();
       analyser.fftSize = 1024;
-      gain.connect(pan);
+      const fx = new FxProcessor(this.ctx, t.fx, this.project.bpm);
+      gain.connect(fx.input);
+      fx.output.connect(pan);
       pan.connect(analyser);
       analyser.connect(this.master);
-      this.nodes.set(t.id, { gain, pan, analyser });
+      this.nodes.set(t.id, { gain, fx, pan, analyser });
     }
   }
 
@@ -375,6 +385,7 @@ export class DawEngine {
       if (!n) continue;
       n.gain.gain.setTargetAtTime(this.effectiveGain(t), now, 0.012);
       n.pan.pan.setTargetAtTime(t.pan, now, 0.012);
+      n.fx.apply(t.fx, this.project.bpm);
     }
   }
 
@@ -607,7 +618,9 @@ export class DawEngine {
     const end = this.contentEnd();
     if (end <= 0) throw new Error("empty");
     const bpm = this.project.bpm;
-    const seconds = (end * 60) / bpm + 0.5;
+    let tail = 0.5;
+    for (const t of this.project.tracks) tail = Math.max(tail, fxTailSeconds(t.fx, bpm) + 0.25);
+    const seconds = (end * 60) / bpm + tail;
     const rate = this.ctx.sampleRate;
     const off = new OfflineAudioContext(2, Math.ceil(seconds * rate), rate);
     const master = off.createGain();
@@ -619,7 +632,9 @@ export class DawEngine {
       g.gain.value = this.effectiveGain(t);
       const p = off.createStereoPanner();
       p.pan.value = t.pan;
-      g.connect(p);
+      const fx = new FxProcessor(off, t.fx, bpm);
+      g.connect(fx.input);
+      fx.output.connect(p);
       p.connect(master);
       nodes.set(t.id, g);
     }

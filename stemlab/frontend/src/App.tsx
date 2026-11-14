@@ -20,6 +20,7 @@ import {
 } from "./api";
 import Mixer from "./components/Mixer";
 import MiniDaw from "./components/MiniDaw";
+import { DawGuideSection, DawLandingSection } from "./components/DawShowcase";
 import ProcessingView from "./components/ProcessingView";
 import UploadZone from "./components/UploadZone";
 import { useLanguage } from "./components/Language";
@@ -394,8 +395,8 @@ export default function App() {
           Stemlab
         </button>
         <div className="flex items-center gap-5">
-          <button className="text-sm text-neutral-400 transition hover:text-white" onClick={() => navigate("daw")}>
-            Mini DAW
+          <button className="daw-cta" onClick={() => navigate("daw")}>
+            <span className="daw-cta-bars" aria-hidden="true"><i /><i /><i /><i /></span>Mini DAW<span aria-hidden="true">↗</span>
           </button>
           <button className="text-sm text-neutral-400 transition hover:text-white" onClick={() => navigate("how-it-works")}>
           {t("วิธีการทำงาน", "How it works")}
@@ -606,7 +607,7 @@ function HomePage({
         </a>
         <nav className="flex items-center gap-6 text-sm">
           <a className="hidden text-neutral-400 transition hover:text-white sm:inline" href="#features">{t("ความสามารถ", "Features")}</a>
-          <button className="hidden text-neutral-400 transition hover:text-white sm:inline" onClick={() => goTo("/daw")}>Mini DAW</button>
+          <button className="daw-cta" onClick={() => goTo("/daw")}><span className="daw-cta-bars" aria-hidden="true"><i /><i /><i /><i /></span>Mini DAW<span aria-hidden="true">↗</span></button>
           <button className="hidden text-neutral-400 transition hover:text-white sm:inline" onClick={onHowItWorks}>{t("วิธีการทำงาน", "How it works")}</button>
           {user ? (
             <>
@@ -692,6 +693,8 @@ function HomePage({
             </div>
           </div>
         </section>
+
+        <DawLandingSection onOpen={() => goTo("/daw")} />
 
         <section id="how-it-works" className="mx-auto max-w-6xl px-5 py-20 sm:px-8 md:py-24">
           <div className="flex flex-col justify-between gap-5 md:flex-row md:items-end">
@@ -875,6 +878,8 @@ function HowItWorksPage({
             </div>
           </div>
         </section>
+
+        <DawGuideSection onOpen={() => goTo("/daw")} />
 
         <section className="mx-auto max-w-6xl px-5 py-16 sm:px-8 md:py-20">
           <p className="eyebrow">{t("ข้อมูลที่ควรรู้", "What you should know")}</p>
@@ -1545,7 +1550,7 @@ function DawPage({
         <div className="daw-title-row">
           <div>
             <p className="eyebrow"><span className="status-dot" /> {t("สเก็ตช์แพด สำหรับ remix", "Remix sketchpad")}</p>
-            <h1 className="mt-3 text-3xl font-semibold tracking-tight text-white sm:text-4xl">Mini DAW</h1>
+            <h1 className="daw-title">Mini <span>DAW</span></h1>
           </div>
           <p className="max-w-xl text-sm leading-7 text-neutral-400">
             {t(

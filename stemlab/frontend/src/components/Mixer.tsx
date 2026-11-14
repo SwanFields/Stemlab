@@ -80,8 +80,9 @@ export default function Mixer({ jobId, filename, stems, onReset, onOpenDaw }: Pr
             <button
               type="button"
               onClick={onOpenDaw}
-              className="border border-neutral-700 px-4 py-2 text-sm text-neutral-200 transition-colors hover:border-white focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white"
+              className="daw-cta daw-cta-lg"
             >
+              <span className="daw-cta-bars" aria-hidden="true"><i /><i /><i /><i /></span>
               {t("เปิดใน Mini DAW", "Open in Mini DAW")} <span aria-hidden="true">↗</span>
             </button>
           )}
