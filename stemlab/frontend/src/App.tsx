@@ -621,23 +621,22 @@ function HomePage({
     <div ref={rootRef} className="landing-page landing-clip min-h-screen">
       <div className="scroll-progress" data-progress aria-hidden="true" />
       <header className="landing-nav mx-auto flex max-w-6xl items-center justify-between px-5 py-5 sm:px-8">
-        <a className="flex items-center gap-3 font-semibold tracking-tight text-white" href="/" aria-label={t("Stemlab หน้าหลัก", "Stemlab home")}>
-          <span className="brand-mark" aria-hidden="true"><span /><span /><span /><span /></span>
-          <span className="text-xl">Stemlab</span>
+        <a className="landing-brand flex items-center font-bold tracking-tight text-white" href="/" aria-label={t("Stemlab หน้าหลัก", "Stemlab home")}>
+          <span className="landing-brand-wordmark">Stemlab</span>
         </a>
-        <nav className="flex items-center gap-6 text-sm">
-          <a className="hidden text-neutral-400 transition hover:text-white sm:inline" href="#features">{t("ความสามารถ", "Features")}</a>
-          <button className="daw-cta" onClick={() => goTo("/daw")}><span className="daw-cta-bars" aria-hidden="true"><i /><i /><i /><i /></span>Mini DAW<span aria-hidden="true">↗</span></button>
+        <nav className="landing-nav-actions flex items-center gap-6 text-sm">
+          <a className="landing-nav-features-link hidden text-neutral-400 transition hover:text-white sm:inline" href="#features">{t("ความสามารถ", "Features")}</a>
+          <button className="daw-cta landing-nav-daw" onClick={() => goTo("/daw")}><span className="daw-cta-bars" aria-hidden="true"><i /><i /><i /><i /></span>Mini DAW<span aria-hidden="true">↗</span></button>
           <button className="hidden text-neutral-400 transition hover:text-white sm:inline" onClick={onHowItWorks}>{t("วิธีการทำงาน", "How it works")}</button>
           {user ? (
             <>
               <AccountMenu user={user} onAccount={onAccount} onHistory={onHistory} onLogout={onLogout} />
-              <button className="logout-button" onClick={onLogout}>{t("ออกจากระบบ", "Log out")}</button>
+              <button className="logout-button landing-nav-logout" onClick={onLogout}>{t("ออกจากระบบ", "Log out")}</button>
             </>
           ) : (
-            <button className="text-neutral-400 transition hover:text-white" onClick={onLogin}>{t("เข้าสู่ระบบ", "Log in")}</button>
+            <button className="landing-nav-login text-neutral-400 transition hover:text-white" onClick={onLogin}>{t("เข้าสู่ระบบ", "Log in")}</button>
           )}
-          <button className="button button-small" onClick={onStart}>{t("เริ่มต้นใช้งาน", "Get started")} <span aria-hidden="true">↗</span></button>
+          <button className="button button-small landing-nav-start" onClick={onStart}>{t("เริ่มต้นใช้งาน", "Get started")} <span aria-hidden="true">↗</span></button>
         </nav>
       </header>
 
