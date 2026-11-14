@@ -24,6 +24,7 @@ import {
   type User,
 } from "./api";
 import Mixer from "./components/Mixer";
+import { playbackSession } from "./audio/PlaybackSession";
 import MiniDaw from "./components/MiniDaw";
 import { DawGuideSection, DawLandingSection } from "./components/DawShowcase";
 import ProcessingView from "./components/ProcessingView";
@@ -115,6 +116,12 @@ export default function App() {
   const [logoutError, setLogoutError] = useState<string | null>(null);
   const run = useRef(0); // bumped on every new job / reset so stale async work stops itself
   const upload = useRef<AbortController | null>(null);
+
+  // The Mini DAW has its own transport; pause the background song there so the two never overlap.
+  useEffect(() => {
+    playbackSession.setSuppressed("daw", page === "daw");
+    if (page === "daw") playbackSession.pause();
+  }, [page]);
 
   useEffect(() => {
     getHealth()
@@ -258,6 +265,7 @@ export default function App() {
   const handleLogout = useCallback(async () => {
     try {
       await logout();
+      playbackSession.close(); // the loaded stems belong to the account that just signed out
       setUser(null);
       setLogoutError(null);
       navigate("home");

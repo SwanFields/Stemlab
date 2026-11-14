@@ -1,6 +1,6 @@
-import { useEffect, useState } from "react";
-import { stemUrl, type StemInfo } from "../api";
-import { StemPlayer } from "../audio/StemPlayer";
+import { useEffect } from "react";
+import type { StemInfo } from "../api";
+import { playbackSession, usePlaybackSession } from "../audio/PlaybackSession";
 import AbSwitch from "./AbSwitch";
 import ExportPanel from "./ExportPanel";
 import TrackStrip from "./TrackStrip";
@@ -18,30 +18,24 @@ interface Props {
 
 export default function Mixer({ jobId, filename, stems, onReset, onOpenDaw }: Props) {
   const { t } = useLanguage();
-  const [player, setPlayer] = useState<StemPlayer | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  const [loaded, setLoaded] = useState(0);
+  const session = usePlaybackSession();
 
+  // The player belongs to the app-wide playback session, not to this page, so the music keeps
+  // playing (and the mini player dock can control it) after you leave the mixer.
   useEffect(() => {
-    const p = new StemPlayer();
-    let cancelled = false;
-    setPlayer(null);
-    setError(null);
-    setLoaded(0);
-    p.load(stems, (done) => {
-      if (!cancelled) setLoaded(done);
-    }, stemUrl(jobId, "original"))
-      .then(() => {
-        if (!cancelled) setPlayer(p);
-      })
-      .catch((e: unknown) => {
-        if (!cancelled) setError(e instanceof Error ? e.message : t("โหลดไฟล์เสียงไม่สำเร็จ", "Could not load audio files."));
-      });
-    return () => {
-      cancelled = true;
-      p.dispose();
-    };
-  }, [jobId, stems, t]);
+    playbackSession.open(jobId, filename, stems);
+  }, [jobId, filename, stems]);
+
+  // While the mixer is on screen it is the player UI; the dock stays out of the way.
+  useEffect(() => {
+    playbackSession.setSuppressed("mixer", true);
+    return () => playbackSession.setSuppressed("mixer", false);
+  }, []);
+
+  const mine = session.jobId === jobId;
+  const player = mine && session.status === "ready" ? session.player : null;
+  const error = mine && session.status === "error" ? (session.error ?? t("โหลดไฟล์เสียงไม่สำเร็จ", "Could not load audio files.")) : null;
+  const loaded = mine ? session.loaded : 0;
 
   if (error) {
     return (

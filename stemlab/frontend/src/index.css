@@ -4630,3 +4630,491 @@ html[data-theme="light"] .contact-page .contact-form .bg-white\/\[0\.025\] { bac
 /* Static contact details shared by all site footers */
 html[data-theme="light"] footer .border-t .text-neutral-300 { color: #292522; }
 html[data-theme="light"] footer .border-t .text-neutral-500 { color: #827a72; }
+
+/* =====================================================================
+   Mini player dock: a persistent, music-reactive player that follows you across pages.
+   Collapsed = soft glow + grab pill. Raised = controls (hover on desktop, swipe on phones).
+   ===================================================================== */
+.mp-root {
+  --mp-a: #cf9474;
+  --mp-b: #f0b894;
+  --mp-c: #9c8ad0;
+  --mp-ink: #ece8e4;
+  --mp-dim: #a29c96;
+  --mp-glass: rgb(20 19 19 / 82%);
+  --mp-edge: rgb(255 255 255 / 11%);
+  --mp-track: rgb(255 255 255 / 16%);
+  --lvl: 0;
+}
+
+html[data-theme="light"] .mp-root {
+  --mp-a: #b9764f;
+  --mp-b: #e5a37c;
+  --mp-c: #8d79c4;
+  --mp-ink: #24211f;
+  --mp-dim: #6e6760;
+  --mp-glass: rgb(255 253 250 / 88%);
+  --mp-edge: rgb(43 37 31 / 13%);
+  --mp-track: rgb(43 37 31 / 16%);
+}
+
+/* ---- the glow: three blurred lights drifting along the bottom edge ---- */
+.mp-glow {
+  position: fixed;
+  z-index: 90;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  height: 150px;
+  overflow: hidden;
+  opacity: 0.3;
+  pointer-events: none;
+  mask-image: linear-gradient(to top, #000 8%, transparent 100%);
+  transition: opacity 700ms ease;
+  animation: mp-appear 1100ms ease both;
+}
+
+.mp-root[data-playing="true"] .mp-glow {
+  opacity: calc(0.42 + var(--lvl) * 0.5);
+  transition-duration: 120ms;
+}
+
+.mp-root[data-open="true"] .mp-glow {
+  opacity: 0.72;
+}
+
+.mp-blob {
+  position: absolute;
+  bottom: -74px;
+  width: 46vw;
+  min-width: 280px;
+  height: 150px;
+  border-radius: 50%;
+  background: radial-gradient(closest-side, color-mix(in srgb, var(--c) 92%, transparent), transparent);
+  filter: blur(34px);
+  scale: calc(0.8 + var(--lvl) * 0.65) calc(0.85 + var(--lvl) * 0.9);
+  transition: scale 140ms ease-out;
+  animation: mp-drift var(--d) ease-in-out infinite alternate;
+  animation-play-state: paused;
+}
+
+.mp-root[data-playing="true"] .mp-blob {
+  animation-play-state: running;
+}
+
+.mp-blob-a {
+  --c: var(--mp-a);
+  --d: 9s;
+  left: -8vw;
+}
+
+.mp-blob-b {
+  --c: var(--mp-b);
+  --d: 12s;
+  left: 28vw;
+  animation-direction: alternate-reverse;
+}
+
+.mp-blob-c {
+  --c: var(--mp-c);
+  --d: 15s;
+  right: -10vw;
+  opacity: 0.8;
+}
+
+.mp-glow::after {
+  position: absolute;
+  right: 6%;
+  bottom: 0;
+  left: 6%;
+  height: 2px;
+  border-radius: 2px;
+  background: linear-gradient(90deg, transparent, var(--mp-a), var(--mp-b), var(--mp-c), var(--mp-a), transparent);
+  background-size: 200% 100%;
+  content: "";
+  opacity: 0.85;
+  animation: mp-shimmer 6s linear infinite;
+  animation-play-state: paused;
+}
+
+.mp-root[data-playing="true"] .mp-glow::after {
+  animation-play-state: running;
+}
+
+html[data-theme="light"] .mp-blob {
+  filter: blur(40px);
+}
+
+@keyframes mp-drift {
+  from { translate: -6vw 6px; }
+  to { translate: 9vw -10px; }
+}
+
+@keyframes mp-shimmer {
+  to { background-position: -200% 0; }
+}
+
+@keyframes mp-appear {
+  from { opacity: 0; }
+}
+
+/* ---- grab pill (always the only thing that can take a tap while collapsed) ---- */
+.mp-grab {
+  position: fixed;
+  z-index: 95; /* below the language / theme toggles so they win any overlap */
+  bottom: max(4px, env(safe-area-inset-bottom));
+  left: 50%;
+  display: flex;
+  width: 96px;
+  height: 22px;
+  align-items: flex-end;
+  justify-content: center;
+  padding: 0 0 2px;
+  border: 0;
+  background: transparent;
+  cursor: pointer;
+  font: inherit;
+  appearance: none;
+  -webkit-tap-highlight-color: transparent;
+  touch-action: none;
+  transform: translateX(-50%);
+  transition: opacity 220ms ease;
+}
+
+.mp-root[data-open="true"] .mp-grab {
+  opacity: 0;
+  pointer-events: none;
+}
+
+.mp-pill {
+  display: flex;
+  height: 15px;
+  min-width: 46px;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--mp-edge);
+  border-radius: 999px;
+  background: var(--mp-glass);
+  padding: 0 11px;
+  backdrop-filter: blur(10px);
+  box-shadow: 0 0 calc(10px + var(--lvl) * 18px) color-mix(in srgb, var(--mp-a) 55%, transparent);
+  transition: border-color 160ms ease;
+}
+
+.mp-grab:hover .mp-pill,
+.mp-grab:focus-visible .mp-pill {
+  border-color: color-mix(in srgb, var(--mp-a) 70%, transparent);
+}
+
+.mp-grab:focus-visible {
+  outline: 2px solid var(--mp-a);
+  outline-offset: 2px;
+  border-radius: 999px;
+}
+
+/* ---- equaliser bars: tell you the music is on ---- */
+.mp-eq {
+  display: inline-flex;
+  height: 9px;
+  align-items: flex-end;
+  gap: 2px;
+}
+
+.mp-eq i {
+  display: block;
+  width: 2px;
+  height: 4px;
+  border-radius: 1px;
+  background: var(--mp-a);
+  transform-origin: bottom;
+}
+
+.mp-eq-lg {
+  height: 22px;
+  gap: 3px;
+}
+
+.mp-eq-lg i {
+  width: 3px;
+  height: 8px;
+}
+
+.mp-root[data-playing="true"] .mp-eq i {
+  animation: mp-eq 900ms ease-in-out infinite alternate;
+}
+
+.mp-eq i:nth-child(2) { animation-delay: -300ms; animation-duration: 700ms; }
+.mp-eq i:nth-child(3) { animation-delay: -550ms; animation-duration: 1100ms; }
+.mp-eq i:nth-child(4) { animation-delay: -150ms; animation-duration: 800ms; }
+
+@keyframes mp-eq {
+  from { transform: scaleY(0.4); }
+  to { transform: scaleY(2.2); }
+}
+
+/* ---- the raised player ---- */
+.mp-sheet {
+  position: fixed;
+  z-index: 110;
+  bottom: max(14px, env(safe-area-inset-bottom));
+  left: 50%;
+  width: min(580px, calc(100vw - 24px));
+  box-sizing: border-box;
+  border: 1px solid var(--mp-edge);
+  border-radius: 20px;
+  background: var(--mp-glass);
+  padding: 8px 20px 18px;
+  color: var(--mp-ink);
+  box-shadow:
+    0 -10px 60px color-mix(in srgb, var(--mp-a) 22%, transparent),
+    0 18px 50px rgb(0 0 0 / 34%);
+  backdrop-filter: blur(22px) saturate(1.2);
+  touch-action: none;
+  user-select: none;
+  visibility: hidden;
+  opacity: 0;
+  transform: translate(-50%, calc(100% + 48px));
+  transition:
+    transform 420ms cubic-bezier(0.2, 0.9, 0.2, 1),
+    opacity 240ms ease,
+    visibility 0s linear 420ms;
+}
+
+.mp-root[data-open="true"] .mp-sheet {
+  visibility: visible;
+  opacity: 1;
+  transform: translate(-50%, 0);
+  transition-delay: 0s;
+}
+
+.mp-sheet-handle {
+  display: block;
+  width: 38px;
+  height: 4px;
+  margin: 2px auto 10px;
+  border-radius: 4px;
+  background: var(--mp-track);
+}
+
+.mp-head {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+
+.mp-title {
+  min-width: 0;
+  flex: 1;
+}
+
+.mp-title strong {
+  display: block;
+  overflow: hidden;
+  font-size: 14px;
+  font-weight: 500;
+  line-height: 1.35;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.mp-title span {
+  display: block;
+  margin-top: 1px;
+  color: var(--mp-dim);
+  font-size: 11px;
+}
+
+.mp-close,
+.mp-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+  font: inherit;
+  transition: background 160ms ease, color 160ms ease, transform 160ms ease;
+}
+
+.mp-close {
+  width: 30px;
+  height: 30px;
+  border-radius: 50%;
+  color: var(--mp-dim);
+}
+
+.mp-close:hover,
+.mp-btn:hover {
+  background: color-mix(in srgb, var(--mp-a) 16%, transparent);
+  color: var(--mp-ink);
+}
+
+.mp-close:focus-visible,
+.mp-btn:focus-visible,
+.mp-seek:focus-visible {
+  outline: 2px solid var(--mp-a);
+  outline-offset: 2px;
+}
+
+.mp-progress {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-top: 14px;
+}
+
+.mp-time {
+  width: 38px;
+  color: var(--mp-dim);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+}
+
+.mp-time-total {
+  text-align: left;
+}
+
+.mp-seek {
+  --fill: 0%;
+  flex: 1;
+  height: 22px;
+  margin: 0;
+  background: transparent;
+  cursor: pointer;
+  appearance: none;
+  -webkit-appearance: none;
+}
+
+.mp-seek::-webkit-slider-runnable-track {
+  height: 4px;
+  border-radius: 4px;
+  background: linear-gradient(to right, var(--mp-a) var(--fill), var(--mp-track) var(--fill));
+}
+
+.mp-seek::-webkit-slider-thumb {
+  width: 12px;
+  height: 12px;
+  margin-top: -4px;
+  border: 0;
+  border-radius: 50%;
+  background: var(--mp-ink);
+  box-shadow: 0 0 0 4px color-mix(in srgb, var(--mp-a) 28%, transparent);
+  appearance: none;
+  -webkit-appearance: none;
+  transition: transform 140ms ease;
+}
+
+.mp-seek:hover::-webkit-slider-thumb,
+.mp-seek:active::-webkit-slider-thumb {
+  transform: scale(1.25);
+}
+
+.mp-seek::-moz-range-track {
+  height: 4px;
+  border-radius: 4px;
+  background: var(--mp-track);
+}
+
+.mp-seek::-moz-range-progress {
+  height: 4px;
+  border-radius: 4px;
+  background: var(--mp-a);
+}
+
+.mp-seek::-moz-range-thumb {
+  width: 12px;
+  height: 12px;
+  border: 0;
+  border-radius: 50%;
+  background: var(--mp-ink);
+}
+
+.mp-controls {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 18px;
+  margin-top: 6px;
+}
+
+.mp-btn {
+  width: 48px;
+  height: 48px;
+  border-radius: 50%;
+}
+
+.mp-btn svg {
+  width: 28px;
+  height: 28px;
+}
+
+.mp-btn:active {
+  transform: scale(0.94);
+}
+
+.mp-btn-play {
+  width: 52px;
+  height: 52px;
+  background: var(--mp-a);
+  color: #17110e;
+  box-shadow: 0 0 22px color-mix(in srgb, var(--mp-a) 45%, transparent);
+}
+
+.mp-btn-play:hover {
+  background: var(--mp-b);
+  color: #17110e;
+}
+
+.mp-btn-play svg {
+  width: 20px;
+  height: 20px;
+}
+
+html[data-theme="light"] .mp-btn-play {
+  color: #fff;
+}
+
+html[data-theme="light"] .mp-btn-play:hover {
+  color: #fff;
+}
+
+@media (max-width: 640px) {
+  .mp-sheet {
+    bottom: 0;
+    width: 100vw;
+    border-right: 0;
+    border-bottom: 0;
+    border-left: 0;
+    border-radius: 22px 22px 0 0;
+    padding: 8px 18px calc(18px + env(safe-area-inset-bottom));
+  }
+
+  .mp-grab {
+    bottom: max(2px, env(safe-area-inset-bottom));
+    width: 120px;
+  }
+
+  .mp-glow {
+    height: 96px;
+  }
+}
+
+@media (pointer: coarse) {
+  .mp-grab {
+    height: 26px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .mp-blob,
+  .mp-glow::after,
+  .mp-eq i {
+    animation: none !important;
+  }
+
+  .mp-sheet {
+    transition-duration: 0.01ms !important;
+  }
+}
