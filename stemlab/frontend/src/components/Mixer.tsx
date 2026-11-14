@@ -13,9 +13,10 @@ interface Props {
   filename: string;
   stems: StemInfo[];
   onReset: () => void;
+  onOpenDaw?: () => void;
 }
 
-export default function Mixer({ jobId, filename, stems, onReset }: Props) {
+export default function Mixer({ jobId, filename, stems, onReset, onOpenDaw }: Props) {
   const { t } = useLanguage();
   const [player, setPlayer] = useState<StemPlayer | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -74,13 +75,24 @@ export default function Mixer({ jobId, filename, stems, onReset }: Props) {
             {filename}
           </h2>
         </div>
-        <button
-          type="button"
-          onClick={onReset}
-          className="border border-neutral-700 px-4 py-2 text-sm text-neutral-200 transition-colors hover:border-white focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white"
-        >
-          {t("แยกเพลงอื่น", "Separate another song")}
-        </button>
+        <div className="flex flex-wrap items-center gap-3">
+          {onOpenDaw && (
+            <button
+              type="button"
+              onClick={onOpenDaw}
+              className="border border-neutral-700 px-4 py-2 text-sm text-neutral-200 transition-colors hover:border-white focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white"
+            >
+              {t("เปิดใน Mini DAW", "Open in Mini DAW")} <span aria-hidden="true">↗</span>
+            </button>
+          )}
+          <button
+            type="button"
+            onClick={onReset}
+            className="border border-neutral-700 px-4 py-2 text-sm text-neutral-200 transition-colors hover:border-white focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white"
+          >
+            {t("แยกเพลงอื่น", "Separate another song")}
+          </button>
+        </div>
       </header>
 
       <Transport player={player} />

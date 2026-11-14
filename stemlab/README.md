@@ -205,3 +205,18 @@ pytest -v
 - รองรับโมเดล 4 สเต็ม (`htdemucs`, `htdemucs_ft`, `mdx_extra`) ส่วน `htdemucs_6s` มี 6 สเต็มจึงต้องปรับ `STEMS` ใน `config.py`
 - ไม่มีระบบล็อกอิน ใครรู้ `job_id` (สุ่ม 128 บิต) ก็ดึงไฟล์ได้ ถ้าจะใช้งานจริงควรเพิ่มการยืนยันตัวตน
 - แนวต่อยอด: ส่งสถานะด้วย WebSocket/SSE แทน polling, ส่งออกไฟล์มิกซ์ตามที่ปรับใน Mixer ด้วย `OfflineAudioContext`, เก็บไฟล์บน S3
+
+## Mini DAW (`/daw`)
+
+A browser remix sketchpad that is separate from the stem mixer. Use stems you just separated
+("Open in Mini DAW" in the mixer, or pick a song from the library) or drop in your own audio files.
+
+- Arrangement timeline with bar/beat ruler, grid lines, snap and zoom (Ctrl/⌘ + wheel).
+- Drag clips to move, drag their edges to trim, Alt + drag to copy, drag from the library to place.
+- Chop tool (`C`) cuts where you click, `S` splits at the playhead, "Slice to grid" cuts at every snap step,
+  Duplicate / Loop ×4 / Loop ×8 repeat a selection.
+- Loop region (drag in the thin strip above the ruler), metronome, per-track volume / pan / mute / solo.
+- Warp matches each clip to the project BPM (BPM detection is approximate, edit it per sound if needed).
+- Undo/redo (`Ctrl/⌘ Z`), export the arrangement to WAV.
+
+Code: `frontend/src/audio/DawEngine.ts` (model, scheduling, export) and `frontend/src/components/MiniDaw.tsx` + `components/daw/*`.

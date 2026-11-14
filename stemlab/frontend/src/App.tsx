@@ -19,6 +19,7 @@ import {
   type User,
 } from "./api";
 import Mixer from "./components/Mixer";
+import MiniDaw from "./components/MiniDaw";
 import ProcessingView from "./components/ProcessingView";
 import UploadZone from "./components/UploadZone";
 import { useLanguage } from "./components/Language";
@@ -90,8 +91,9 @@ export default function App() {
   const { t, language } = useLanguage();
   const [phase, setPhase] = useState<Phase>({ name: "idle" });
   const [health, setHealth] = useState<Health | "offline" | null>(null);
-  const [page, setPage] = useState<"home" | "how-it-works" | "studio" | "history" | "history-mixer" | "account" | "auth">(() => getPageFromPath());
+  const [page, setPage] = useState<"home" | "how-it-works" | "studio" | "daw" | "history" | "history-mixer" | "account" | "auth">(() => getPageFromPath());
   const [historyJobId, setHistoryJobId] = useState<string | null>(() => getHistoryJobIdFromPath());
+  const [dawJob, setDawJob] = useState<string | null>(() => getDawJobFromUrl());
   const [historyJob, setHistoryJob] = useState<JobInfo | null>(null);
   const [historyJobLoading, setHistoryJobLoading] = useState(false);
   const [historyJobError, setHistoryJobError] = useState<string | null>(null);
@@ -115,20 +117,23 @@ export default function App() {
     const syncPage = () => {
       setPage(getPageFromPath());
       setHistoryJobId(getHistoryJobIdFromPath());
+      setDawJob(getDawJobFromUrl());
     };
     window.addEventListener("popstate", syncPage);
     return () => window.removeEventListener("popstate", syncPage);
   }, []);
 
-  const navigate = useCallback((destination: "home" | "how-it-works" | "studio" | "history" | "account" | "auth") => {
+  const navigate = useCallback((destination: "home" | "how-it-works" | "studio" | "daw" | "history" | "account" | "auth") => {
     const path =
       destination === "studio" ? "/studio"
+        : destination === "daw" ? "/daw"
         : destination === "how-it-works" ? "/how-it-works"
           : destination === "history" ? "/history"
           : destination === "account" ? "/account"
           : destination === "auth" ? "/login" : "/";
     if (window.location.pathname !== path) window.history.pushState({}, "", path);
     setPage(destination);
+    setDawJob(getDawJobFromUrl());
     window.scrollTo({ top: 0, behavior: "smooth" });
   }, []);
 
@@ -283,6 +288,22 @@ export default function App() {
     );
   }
 
+  if (page === "daw") {
+    return (
+      <DawPage
+        user={user}
+        jobId={dawJob}
+        error={logoutError}
+        onHome={() => navigate("home")}
+        onStudio={() => navigate("studio")}
+        onHistory={() => navigate("history")}
+        onAccount={() => navigate("account")}
+        onLogin={() => navigate("auth")}
+        onLogout={handleLogout}
+      />
+    );
+  }
+
   if (page === "auth" || ((page === "studio" || page === "history" || page === "history-mixer" || page === "account") && !authLoading && !user)) {
     return <AuthPage onAuthenticated={handleAuthenticated} onHome={() => navigate("home")} />;
   }
@@ -357,6 +378,7 @@ export default function App() {
               jobId={historyJob.job_id}
               filename={historyJob.filename}
               stems={historyJob.stems}
+              onOpenDaw={() => goTo(`/daw?job=${historyJob.job_id}`)}
               onReset={() => navigate("history")}
             />
           )}
@@ -372,6 +394,9 @@ export default function App() {
           Stemlab
         </button>
         <div className="flex items-center gap-5">
+          <button className="text-sm text-neutral-400 transition hover:text-white" onClick={() => navigate("daw")}>
+            Mini DAW
+          </button>
           <button className="text-sm text-neutral-400 transition hover:text-white" onClick={() => navigate("how-it-works")}>
           {t("วิธีการทำงาน", "How it works")}
           </button>
@@ -437,6 +462,7 @@ export default function App() {
             jobId={phase.jobId}
             filename={phase.filename}
             stems={phase.stems}
+            onOpenDaw={() => goTo(`/daw?job=${phase.jobId}`)}
             onReset={() => reset()}
           />
         )}
@@ -445,14 +471,27 @@ export default function App() {
   );
 }
 
-function getPageFromPath(): "home" | "how-it-works" | "studio" | "history" | "history-mixer" | "account" | "auth" {
+function getPageFromPath(): "home" | "how-it-works" | "studio" | "daw" | "history" | "history-mixer" | "account" | "auth" {
   if (/^\/history\/[0-9a-f]{32}$/.test(window.location.pathname)) return "history-mixer";
   if (window.location.pathname === "/studio") return "studio";
+  if (window.location.pathname === "/daw") return "daw";
   if (window.location.pathname === "/how-it-works") return "how-it-works";
   if (window.location.pathname === "/history") return "history";
   if (window.location.pathname === "/account") return "account";
   if (window.location.pathname === "/login" || window.location.pathname === "/register") return "auth";
   return "home";
+}
+
+function getDawJobFromUrl(): string | null {
+  const job = new URLSearchParams(window.location.search).get("job");
+  return job && /^[0-9a-f]{32}$/.test(job) ? job : null;
+}
+
+/** Client-side navigation that any component can use; App listens for popstate. */
+function goTo(path: string) {
+  if (window.location.pathname + window.location.search !== path) window.history.pushState({}, "", path);
+  window.dispatchEvent(new PopStateEvent("popstate"));
+  window.scrollTo({ top: 0, behavior: "smooth" });
 }
 
 function getHistoryJobIdFromPath(): string | null {
@@ -520,6 +559,7 @@ function AccountMenu({
             <span className="mt-1 block max-w-56 truncate text-xs text-neutral-500">{user.email}</span>
           </div>
           <button role="menuitem" type="button" onClick={() => choose(onAccount)}>{t("แดชบอร์ดส่วนตัว", "Personal dashboard")}</button>
+          <button role="menuitem" type="button" onClick={() => choose(() => goTo("/daw"))}>Mini DAW</button>
           <button role="menuitem" type="button" onClick={() => choose(onHistory)}>{t("ประวัติการแยก STEM", "STEM history")}</button>
           <button className="account-dropdown-logout" role="menuitem" type="button" onClick={() => choose(onLogout)}>
             {t("ล็อกเอาต์", "Log out")}
@@ -566,6 +606,7 @@ function HomePage({
         </a>
         <nav className="flex items-center gap-6 text-sm">
           <a className="hidden text-neutral-400 transition hover:text-white sm:inline" href="#features">{t("ความสามารถ", "Features")}</a>
+          <button className="hidden text-neutral-400 transition hover:text-white sm:inline" onClick={() => goTo("/daw")}>Mini DAW</button>
           <button className="hidden text-neutral-400 transition hover:text-white sm:inline" onClick={onHowItWorks}>{t("วิธีการทำงาน", "How it works")}</button>
           {user ? (
             <>
@@ -1454,5 +1495,67 @@ function Step({ number, title, description }: { number: string; title: string; d
       <h3 className="mt-5 text-lg font-medium text-white">{title}</h3>
       <p className="mt-2 max-w-xs text-sm leading-7 text-neutral-400">{description}</p>
     </article>
+  );
+}
+
+function DawPage({
+  user,
+  jobId,
+  error,
+  onHome,
+  onStudio,
+  onHistory,
+  onAccount,
+  onLogin,
+  onLogout,
+}: {
+  user: User | null;
+  jobId: string | null;
+  error: string | null;
+  onHome: () => void;
+  onStudio: () => void;
+  onHistory: () => void;
+  onAccount: () => void;
+  onLogin: () => void;
+  onLogout: () => void;
+}) {
+  const { t, language } = useLanguage();
+  return (
+    <div className="landing-page daw-page min-h-screen">
+      <header className="landing-nav mx-auto flex max-w-[1680px] items-center justify-between px-5 py-4 sm:px-8">
+        <button className="flex items-center gap-3 font-semibold tracking-tight text-white" onClick={onHome} aria-label={t("กลับหน้าหลัก", "Back to home")}>
+          <span className="brand-mark" aria-hidden="true"><span /><span /><span /><span /></span>
+          <span className="text-xl">Stemlab</span>
+        </button>
+        <nav className="flex items-center gap-5 text-sm">
+          <button className="text-neutral-400 transition hover:text-white" onClick={onStudio}>{t("แยกเสียง", "Separate")}</button>
+          {user && <button className="hidden text-neutral-400 transition hover:text-white sm:inline" onClick={onHistory}>{t("ประวัติ STEM", "History")}</button>}
+          {user ? (
+            <>
+              <AccountMenu user={user} onAccount={onAccount} onHistory={onHistory} onLogout={onLogout} />
+              <button className="logout-button" onClick={onLogout}>{t("ออกจากระบบ", "Log out")}</button>
+            </>
+          ) : (
+            <button className="text-neutral-400 transition hover:text-white" onClick={onLogin}>{t("เข้าสู่ระบบ", "Log in")}</button>
+          )}
+        </nav>
+      </header>
+      <main className="daw-page-main">
+        {error && <p className="mb-4 border-l-2 border-neutral-500 pl-3 text-sm text-neutral-300" role="alert">{translateError(error, language)}</p>}
+        <div className="daw-title-row">
+          <div>
+            <p className="eyebrow"><span className="status-dot" /> {t("สเก็ตช์แพด สำหรับ remix", "Remix sketchpad")}</p>
+            <h1 className="mt-3 text-3xl font-semibold tracking-tight text-white sm:text-4xl">Mini DAW</h1>
+          </div>
+          <p className="max-w-xl text-sm leading-7 text-neutral-400">
+            {t(
+              "หั่น ลูป และเรียงสเตมใหม่บน timeline ที่ลากวางได้อิสระ ใช้สเตมที่เพิ่งแยกเสร็จหรือไฟล์ของคุณเอง แล้วส่งออกเป็น WAV",
+              "Chop, loop and rearrange stems on a free-form timeline. Use stems you just separated or your own files, then export a WAV.",
+            )}
+          </p>
+        </div>
+        <MiniDaw key={jobId ?? "none"} initialJobId={jobId} />
+      </main>
+    </div>
   );
 }
