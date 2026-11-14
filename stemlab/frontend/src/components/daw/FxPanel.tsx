@@ -5,6 +5,8 @@ import {
   EQ_MAX_HZ,
   EQ_MIN_HZ,
   REVERB_PRESETS,
+  UTILITY_MAX_DB,
+  UTILITY_MIN_DB,
   clampNum,
   defaultFx,
   eqBandType,
@@ -13,19 +15,23 @@ import {
   fxActive,
   hzFromUnit,
   unitFromHz,
+  type FxProcessor,
   type TrackFx,
 } from "../../audio/FxChain";
+import { useFrame } from "../../hooks";
 import { useLanguage } from "../Language";
 
 interface Props {
   trackName: string;
   fx: TrackFx;
+  /** Live processor of this track; feeds the spectrum behind the EQ curve. */
+  processor: FxProcessor | null;
   sampleRate: number;
   onChange: (fx: TrackFx, record: boolean) => void;
   onClose: () => void;
 }
 
-type ModuleKey = "filter" | "eq" | "delay" | "reverb";
+type ModuleKey = "utility" | "filter" | "eq" | "delay" | "reverb";
 
 const EQ_W = 360;
 const EQ_H = 150;
@@ -36,10 +42,39 @@ const GRID_HZ = [50, 100, 200, 500, 1000, 2000, 5000, 10000];
 const dbToY = (db: number) => EQ_H / 2 - (clampNum(db, -EQ_MAX_DB, EQ_MAX_DB) / EQ_MAX_DB) * (EQ_H / 2 - 10);
 const yToDb = (y: number) => clampNum(((EQ_H / 2 - y) / (EQ_H / 2 - 10)) * EQ_MAX_DB, -EQ_MAX_DB, EQ_MAX_DB);
 
-export default function FxPanel({ trackName, fx, sampleRate, onChange, onClose }: Props) {
+export default function FxPanel({ trackName, fx, processor, sampleRate, onChange, onClose }: Props) {
   const { t, language } = useLanguage();
   const [band, setBand] = useState(3);
   const svgRef = useRef<SVGSVGElement>(null);
+  const preRef = useRef<SVGPathElement>(null);
+  const postRef = useRef<SVGPathElement>(null);
+  const spectra = useRef<{ pre?: Float32Array<ArrayBuffer>; post?: Float32Array<ArrayBuffer> }>({});
+
+  // Live spectrum of this track before (outline) and after (fill) the EQ: the gap between them is what the EQ is doing.
+  useFrame(() => {
+    if (!processor || processor.spectrumSize === 0) return;
+    const bins = processor.spectrumSize;
+    const nyquist = sampleRate / 2;
+    const draw = (which: "pre" | "post", el: SVGPathElement | null, close: boolean) => {
+      if (!el) return;
+      const buf = (spectra.current[which] ??= new Float32Array(bins));
+      if (!processor.getSpectrum(which, buf)) return;
+      let d = "";
+      for (let i = 0; i < CURVE_POINTS; i++) {
+        const f = curveFreqs[i];
+        const lo = Math.max(0, Math.floor(((f * 0.97) / nyquist) * bins));
+        const hi = Math.min(bins - 1, Math.max(lo, Math.ceil(((f * 1.03) / nyquist) * bins)));
+        let peak = -Infinity;
+        for (let k = lo; k <= hi; k++) if (buf[k] > peak) peak = buf[k];
+        const level = clampNum((peak + 90) / 65, 0, 1); // -90 dB .. -25 dB
+        d += `${i === 0 ? "M" : "L"}${((i / (CURVE_POINTS - 1)) * EQ_W).toFixed(1)} ${(EQ_H - level * (EQ_H - 14)).toFixed(1)} `;
+      }
+      if (close) d += `L${EQ_W} ${EQ_H} L0 ${EQ_H} Z`;
+      el.setAttribute("d", d);
+    };
+    draw("pre", preRef.current, false);
+    draw("post", postRef.current, true);
+  });
 
   /** Edits one module. Touching any knob switches the module on, so a tweak is always audible. */
   const edit = <K extends ModuleKey>(key: K, patch: Partial<TrackFx[K]>, record = false, autoOn = true) => {
@@ -55,6 +90,15 @@ export default function FxPanel({ trackName, fx, sampleRate, onChange, onClose }
     () => Array.from(curve, (db, i) => `${i === 0 ? "M" : "L"}${((i / (CURVE_POINTS - 1)) * EQ_W).toFixed(1)} ${dbToY(db).toFixed(1)}`).join(" "),
     [curve],
   );
+
+  // Shaded areas between the 0 dB line and the curve: red where the EQ pulls the sound down, blue where it lifts it.
+  const { cutPath, boostPath } = useMemo(() => {
+    const zero = dbToY(0);
+    const x = (i: number) => ((i / (CURVE_POINTS - 1)) * EQ_W).toFixed(1);
+    const area = (pick: (y: number) => number) =>
+      `M0 ${zero} ` + Array.from(curve, (db, i) => `L${x(i)} ${pick(dbToY(db)).toFixed(1)}`).join(" ") + ` L${EQ_W} ${zero} Z`;
+    return { cutPath: area((y) => Math.max(zero, y)), boostPath: area((y) => Math.min(zero, y)) };
+  }, [curve]);
 
   const setBandValues = (index: number, patch: Partial<{ freq: number; gain: number; q: number }>, record = false) => {
     const bands = fx.eq.bands.map((b, i) => (i === index ? { ...b, ...patch } : b));
@@ -95,7 +139,10 @@ export default function FxPanel({ trackName, fx, sampleRate, onChange, onClose }
         <strong>
           FX <span>· {trackName}</span>
         </strong>
-        <span className="daw-fx-sub">{t("Filter → EQ → Delay → Reverb", "Filter → EQ → Delay → Reverb")}</span>
+        <span className="daw-fx-scope" title={t("เอฟเฟกต์นี้ใช้กับแทร็กนี้เท่านั้น แทร็กอื่นมีชุดของตัวเองแยกกัน", "These effects only apply to this track. Every other track has its own set.")}>
+          {t("เฉพาะแทร็กนี้", "This track only")}
+        </span>
+        <span className="daw-fx-sub">{t("Utility → Filter → EQ → Delay → Reverb", "Utility → Filter → EQ → Delay → Reverb")}</span>
         <div className="daw-fx-head-actions">
           <button type="button" className="daw-btn" onClick={resetAll} disabled={!fxActive(fx) && JSON.stringify(fx) === JSON.stringify(defaultFx())}>
             {t("รีเซ็ตทั้งหมด", "Reset all")}
@@ -107,6 +154,16 @@ export default function FxPanel({ trackName, fx, sampleRate, onChange, onClose }
       </header>
 
       <div className="daw-fx-grid">
+        {/* ---- Utility ---- */}
+        <Module title="Utility" on={fx.utility.on} onToggle={() => toggle("utility")}>
+          <Knob
+            label={t("เกน (ดันเสียง)", "Gain")}
+            value={(fx.utility.gain - UTILITY_MIN_DB) / (UTILITY_MAX_DB - UTILITY_MIN_DB)}
+            display={`${fx.utility.gain > 0 ? "+" : ""}${fx.utility.gain.toFixed(1)} dB`}
+            onChange={(u) => edit("utility", { gain: Math.round((UTILITY_MIN_DB + u * (UTILITY_MAX_DB - UTILITY_MIN_DB)) * 2) / 2 })}
+          />
+        </Module>
+
         {/* ---- Filter ---- */}
         <Module title="Filter" on={fx.filter.on} onToggle={() => toggle("filter")}>
           <Knob
@@ -138,6 +195,10 @@ export default function FxPanel({ trackName, fx, sampleRate, onChange, onClose }
             {[-12, -6, 0, 6, 12].map((db) => (
               <line key={db} x1={0} x2={EQ_W} y1={dbToY(db)} y2={dbToY(db)} className={db === 0 ? "daw-eq-zero" : "daw-eq-grid"} />
             ))}
+            <path ref={postRef} className="daw-eq-spec-post" />
+            <path ref={preRef} className="daw-eq-spec-pre" />
+            <path d={cutPath} className="daw-eq-cut" />
+            <path d={boostPath} className="daw-eq-boost" />
             <path d={curvePath} className={`daw-eq-curve${fx.eq.on ? " is-on" : ""}`} />
             {fx.eq.bands.map((b, i) => (
               <g key={i}>
@@ -155,6 +216,12 @@ export default function FxPanel({ trackName, fx, sampleRate, onChange, onClose }
               </g>
             ))}
           </svg>
+          <div className="daw-eq-legend" aria-hidden="true">
+            <span className="is-post">{t("เสียงหลัง EQ", "After EQ")}</span>
+            <span className="is-pre">{t("เสียงก่อน EQ", "Before EQ")}</span>
+            <span className="is-cut">{t("ย่านที่ถูกกด", "Cut")}</span>
+            <span className="is-boost">{t("ย่านที่ดันขึ้น", "Boost")}</span>
+          </div>
           <div className="daw-eq-bands" role="tablist" aria-label={t("แบนด์ EQ", "EQ bands")}>
             {fx.eq.bands.map((b, i) => (
               <button key={i} type="button" role="tab" aria-selected={i === band} className={`daw-chip${i === band ? " is-on is-solo" : ""}${b.gain !== 0 ? " has-gain" : ""}`} onClick={() => setBand(i)}>

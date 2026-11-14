@@ -27,7 +27,7 @@ import {
   type Project,
 } from "../audio/DawEngine";
 import { useFrame } from "../hooks";
-import { defaultFx, fxActive } from "../audio/FxChain";
+import { defaultFx, fxActive, fxActiveModules } from "../audio/FxChain";
 import ClipView from "./daw/ClipView";
 import FxPanel from "./daw/FxPanel";
 import Library from "./daw/Library";
@@ -50,6 +50,8 @@ import {
   splitClipsAt,
 } from "./daw/dawUtils";
 import { useLanguage } from "./Language";
+
+const REC_COLOR = "#e5675c";
 
 type Tool = "select" | "chop";
 
@@ -121,6 +123,27 @@ function Daw({ engine, initialJobId }: { engine: DawEngine; initialJobId: string
   const [notice, setNotice] = useState<string | null>(null);
   const [exporting, setExporting] = useState(false);
   const [fxTrackId, setFxTrackId] = useState<string | null>(null);
+  const [armedId, setArmedId] = useState<string | null>(null);
+  const [monitor, setMonitor] = useState(false);
+  const [latency, setLatency] = useState(() => {
+    try {
+      return Number(window.localStorage.getItem("stemlab.rec.latency")) || 0;
+    } catch {
+      return 0;
+    }
+  });
+  const [metroVol, setMetroVol] = useState(() => {
+    try {
+      const saved = window.localStorage.getItem("stemlab.daw.metroVolume");
+      return saved === null ? 0.6 : clamp(Number(saved) || 0, 0, 1);
+    } catch {
+      return 0.6;
+    }
+  });
+  const takeNo = useRef(1);
+  const startRecordRef = useRef<() => Promise<void>>(async () => {});
+  const vocalNo = useRef(1);
+  const finishing = useRef(false);
 
   const snap = snapSize(snapKey, bpb);
 
@@ -240,7 +263,7 @@ function Daw({ engine, initialJobId }: { engine: DawEngine; initialJobId: string
 
   // ---- loading audio ---------------------------------------------------------
   const registerSource = useCallback(
-    (name: string, buffer: AudioBuffer, origin: "stem" | "file", color?: string, bpm?: number): DawSource => {
+    (name: string, buffer: AudioBuffer, origin: "stem" | "file" | "rec", color?: string, bpm?: number): DawSource => {
       const src: DawSource = {
         id: uid("s"),
         name,
@@ -478,10 +501,107 @@ function Daw({ engine, initialJobId }: { engine: DawEngine; initialJobId: string
     if (engine.project.tracks.length <= 1) return;
     update((p) => ({ ...p, tracks: p.tracks.filter((tr) => tr.id !== id), clips: p.clips.filter((c) => c.track !== id) }));
     setFxTrackId((cur) => (cur === id ? null : cur));
+    setArmedId((cur) => (cur === id ? null : cur));
     setSelected(new Set());
   };
 
   const addTrack = () => update((p) => ({ ...p, tracks: [...p.tracks, newTrack(p.tracks.length)] }));
+
+  // ---- recording ---------------------------------------------------------------
+  const micMessage = useCallback(
+    (e: unknown) => {
+      switch (e instanceof Error ? e.message : "") {
+        case "MIC_DENIED":
+          return t("เบราว์เซอร์ไม่อนุญาตให้ใช้ไมโครโฟน กดไอคอนไมค์/กุญแจที่แถบที่อยู่เว็บเพื่ออนุญาต แล้วลองใหม่", "Microphone access is blocked. Allow it from the icon in the address bar and try again.");
+        case "MIC_MISSING":
+          return t("ไม่พบไมโครโฟน ลองเสียบไมค์หรือหูฟังที่มีไมค์ แล้วลองใหม่", "No microphone found. Plug one in and try again.");
+        case "MIC_BUSY":
+          return t("ไมโครโฟนกำลังถูกโปรแกรมอื่นใช้อยู่", "The microphone is in use by another app.");
+        case "MIC_UNSUPPORTED":
+          return t("เบราว์เซอร์นี้อัดเสียงไม่ได้ (ต้องเปิดผ่าน HTTPS หรือ localhost)", "This browser cannot record (it needs HTTPS or localhost).");
+        default:
+          return t("เปิดไมโครโฟนไม่สำเร็จ", "Could not open the microphone.");
+      }
+    },
+    [t],
+  );
+
+  /** A fresh track named "Vocal N", ready to record on. */
+  const addVocalTrack = () => {
+    const track: DawTrack = { ...newTrack(engine.project.tracks.length), name: `Vocal ${vocalNo.current++}` };
+    update((p) => ({ ...p, tracks: [...p.tracks, track] }));
+    setArmedId(track.id);
+    setActiveTrack(engine.project.tracks.length - 1);
+    return track;
+  };
+
+  const startRecord = async () => {
+    if (engine.recording) return;
+    let track = engine.project.tracks.find((tr) => tr.id === armedId) ?? null;
+    if (!track) track = addVocalTrack();
+    if (engine.project.loop.on) {
+      update((p) => ({ ...p, loop: { ...p.loop, on: false } }), false);
+      flash(t("ปิดลูปชั่วคราวเพื่ออัดเสียงต่อเนื่อง", "Loop switched off so the take records in one pass."));
+    }
+    engine.latencyMs = latency;
+    try {
+      await engine.startRecording(track.id, monitor);
+    } catch (e) {
+      flash(micMessage(e));
+    }
+  };
+
+  const finishRecording = async () => {
+    const take = await engine.stopRecording();
+    if (!take) {
+      flash(t("ไม่ได้บันทึกเสียง ลองอัดใหม่อีกครั้ง", "Nothing was recorded. Please try again."));
+      return;
+    }
+    const trackName = engine.project.tracks.find((tr) => tr.id === take.trackId)?.name ?? "Vocal";
+    const src = registerSource(`${trackName} · take ${takeNo.current++}`, take.buffer, "rec", REC_COLOR, engine.project.bpm);
+    const clip: DawClip = {
+      id: uid("c"),
+      sourceId: src.id,
+      track: take.trackId,
+      start: take.startBeat,
+      offset: take.offset,
+      dur: take.buffer.duration - take.offset,
+      warp: false, // a recording is already at the project's speed
+      gain: 1,
+    };
+    update((p) => (p.tracks.some((tr) => tr.id === take.trackId) ? { ...p, clips: [...p.clips, clip] } : p));
+    setSelected(new Set([clip.id]));
+    flash(t("บันทึกเทคแล้ว กด Space เพื่อฟัง", "Take saved. Press Space to listen."));
+  };
+
+  startRecordRef.current = startRecord;
+
+  // Whatever stops playback (Stop, Space, the end of the song) also ends the take.
+  useEffect(() => {
+    if (!engine.recording || engine.playing || finishing.current) return;
+    finishing.current = true;
+    void finishRecording().finally(() => {
+      finishing.current = false;
+    });
+  });
+
+  useEffect(() => {
+    engine.setMetronomeVolume(metroVol);
+    try {
+      window.localStorage.setItem("stemlab.daw.metroVolume", String(metroVol));
+    } catch {
+      /* storage unavailable */
+    }
+  }, [engine, metroVol]);
+
+  useEffect(() => {
+    try {
+      window.localStorage.setItem("stemlab.rec.latency", String(latency));
+    } catch {
+      /* storage unavailable */
+    }
+    engine.latencyMs = latency;
+  }, [engine, latency]);
 
   // ---- keyboard ----------------------------------------------------------------
   useEffect(() => {
@@ -512,6 +632,9 @@ function Daw({ engine, initialJobId }: { engine: DawEngine; initialJobId: string
         setTool("select");
       } else if (!mod && key === "c") {
         setTool("chop");
+      } else if (!mod && key === "r") {
+        if (engine.recording) engine.stop();
+        else void startRecordRef.current();
       } else if (!mod && key === "l") {
         update((p) => ({ ...p, loop: { ...p.loop, on: !p.loop.on } }), false);
       } else if (e.key === "Delete" || e.key === "Backspace") {
@@ -827,12 +950,34 @@ function Daw({ engine, initialJobId }: { engine: DawEngine; initialJobId: string
           <button type="button" className="daw-btn" onClick={() => engine.stop()} aria-label={t("หยุดและกลับไปจุดเริ่ม", "Stop and return to start")} title={t("หยุด / กลับต้น (Home)", "Stop / to start (Home)")}>
             ■
           </button>
+          <button
+            type="button"
+            className={`daw-btn daw-rec${engine.recording ? " is-recording" : ""}`}
+            aria-pressed={engine.recording}
+            onClick={() => (engine.recording ? engine.stop() : void startRecord())}
+            title={t("อัดเสียงจากไมค์ไปพร้อมกับดนตรี (R)", "Record from the microphone over the music (R)")}
+          >
+            <i aria-hidden="true" />
+            {engine.recording ? t("หยุดอัด", "Stop rec") : t("อัด", "Rec")}
+          </button>
           <button type="button" className={`daw-btn daw-toggle${loop.on ? " is-on" : ""}`} aria-pressed={loop.on} onClick={() => update((p) => ({ ...p, loop: { ...p.loop, on: !p.loop.on } }), false)} title="L">
             {t("ลูป", "Loop")}
           </button>
           <button type="button" className={`daw-btn daw-toggle${project.metronome ? " is-on" : ""}`} aria-pressed={project.metronome} onClick={() => update((p) => ({ ...p, metronome: !p.metronome }), false)}>
             {t("เมโทรนอม", "Metro")}
           </button>
+          <input
+            className="daw-metro-vol"
+            type="range"
+            min={0}
+            max={1}
+            step={0.01}
+            value={metroVol}
+            onChange={(e) => setMetroVol(Number(e.target.value))}
+            onDoubleClick={() => setMetroVol(0.6)}
+            aria-label={t("ความดังเมโทรนอม", "Metronome volume")}
+            title={`${t("ความดังเมโทรนอม", "Metronome volume")}: ${Math.round(metroVol * 100)}% (${t("ดับเบิลคลิกเพื่อรีเซ็ต", "double-click to reset")})`}
+          />
         </div>
 
         <div className="daw-readout" aria-live="off">
@@ -958,7 +1103,7 @@ function Daw({ engine, initialJobId }: { engine: DawEngine; initialJobId: string
                 {project.tracks.map((track, index) => {
                   const rowClips = clipsToRender.filter((c) => c.clip.track === track.id);
                   return (
-                    <div className={`daw-row${activeTrack === index ? " is-active" : ""}`} key={track.id}>
+                    <div className={`daw-row${activeTrack === index ? " is-active" : ""}${engine.recordTrackId === track.id ? " is-recording" : ""}`} key={track.id}>
                       <div className="daw-head" onPointerDown={() => setActiveTrack(index)}>
                         <div className="daw-head-top">
                           <input
@@ -969,7 +1114,17 @@ function Daw({ engine, initialJobId }: { engine: DawEngine; initialJobId: string
                           />
                           <button type="button" className={`daw-chip${track.muted ? " is-on is-mute" : ""}`} aria-pressed={track.muted} onClick={() => setTrack(track.id, { muted: !track.muted }, true)} title={t("ปิดเสียง", "Mute")}>M</button>
                           <button type="button" className={`daw-chip${track.solo ? " is-on is-solo" : ""}`} aria-pressed={track.solo} onClick={() => setTrack(track.id, { solo: !track.solo }, true)} title={t("โซโล", "Solo")}>S</button>
-                          <button type="button" className={`daw-chip daw-chip-fx${fxActive(track.fx) ? " has-fx" : ""}${fxTrackId === track.id ? " is-open" : ""}`} aria-pressed={fxTrackId === track.id} onClick={() => setFxTrackId((cur) => (cur === track.id ? null : track.id))} title={t("เอฟเฟกต์ของแทร็ก", "Track effects")}>FX</button>
+                          <button
+                            type="button"
+                            className={`daw-chip daw-chip-rec${armedId === track.id ? " is-on" : ""}${engine.recordTrackId === track.id ? " is-recording" : ""}`}
+                            aria-pressed={armedId === track.id}
+                            disabled={engine.recording}
+                            onClick={() => setArmedId((cur) => (cur === track.id ? null : track.id))}
+                            title={t("เลือกแทร็กนี้เป็นแทร็กอัดเสียง (ไมค์)", "Arm this track for microphone recording")}
+                          >
+                            ●
+                          </button>
+                          <button type="button" className={`daw-chip daw-chip-fx${fxActive(track.fx) ? " has-fx" : ""}${fxTrackId === track.id ? " is-open" : ""}`} aria-pressed={fxTrackId === track.id} onClick={() => setFxTrackId((cur) => (cur === track.id ? null : track.id))} title={fxActive(track.fx) ? `${t("เอฟเฟกต์ของแทร็กนี้ที่เปิดอยู่", "Effects on this track")}: ${fxActiveModules(track.fx).join(" · ")}` : t("เอฟเฟกต์ของแทร็ก (แยกต่อแทร็ก)", "Track effects (separate per track)")}>FX{fxActive(track.fx) ? ` ${fxActiveModules(track.fx).length}` : ""}</button>
                           <button type="button" className="daw-chip daw-chip-del" onClick={() => removeTrack(track.id)} disabled={project.tracks.length <= 1} aria-label={t("ลบแทร็ก", "Delete track")} title={t("ลบแทร็ก", "Delete track")}>×</button>
                         </div>
                         <div className="daw-head-mix">
@@ -1034,6 +1189,9 @@ function Daw({ engine, initialJobId }: { engine: DawEngine; initialJobId: string
                 <div className="daw-row daw-row-add">
                   <div className="daw-head daw-head-add">
                     <button type="button" className="daw-btn" onClick={addTrack}>+ {t("เพิ่มแทร็ก", "Add track")}</button>
+                    <button type="button" className="daw-btn daw-btn-vocal" onClick={addVocalTrack} disabled={engine.recording} title={t("เพิ่มแทร็กสำหรับอัดเสียงร้องจากไมค์", "Add a track to record your voice from the microphone")}>
+                      + {t("แทร็กร้อง (ไมค์)", "Vocal (mic)")}
+                    </button>
                   </div>
                   <div className="daw-lane daw-lane-empty" style={{ width: laneWidth }} />
                 </div>
@@ -1048,12 +1206,48 @@ function Daw({ engine, initialJobId }: { engine: DawEngine; initialJobId: string
             </div>
           </div>
 
+          {/* Microphone recording settings */}
+          {(armedId || engine.recording) && (
+            <section className={`daw-rec-panel${engine.recording ? " is-recording" : ""}`} aria-label={t("อัดเสียง", "Recording")}>
+              <strong>
+                <i aria-hidden="true" />
+                {engine.recording ? t("กำลังอัด", "Recording") : t("พร้อมอัด", "Ready")} ·{" "}
+                {project.tracks.find((tr) => tr.id === (engine.recordTrackId ?? armedId))?.name ?? "-"}
+              </strong>
+              <label className="daw-rec-opt">
+                <input type="checkbox" checked={monitor} disabled={engine.recording} onChange={(e) => setMonitor(e.target.checked)} />
+                {t("ฟังเสียงตัวเองระหว่างอัด (ผ่านเอฟเฟกต์ของแทร็ก)", "Hear myself while recording (through this track's effects)")}
+              </label>
+              <label className="daw-rec-opt">
+                {t("ชดเชยดีเลย์", "Latency trim")}
+                <input
+                  className="daw-input daw-input-latency"
+                  type="number"
+                  min={-200}
+                  max={400}
+                  step={5}
+                  value={latency}
+                  disabled={engine.recording}
+                  onChange={(e) => setLatency(Math.round(clamp(Number(e.target.value) || 0, -200, 400)))}
+                />
+                ms
+              </label>
+              <p>
+                {t(
+                  "แนะนำให้ใส่หูฟัง ไม่งั้นไมค์จะอัดเสียงเพลงจากลำโพงเข้าไปด้วย ถ้าเทคที่อัดช้ากว่าจังหวะ ให้ใส่ค่าติดลบ (เช่น -40) แล้วอัดใหม่",
+                  "Use headphones, or the mic will pick up the music from the speakers. If a take lands late, enter a negative trim (e.g. -40) and record again.",
+                )}
+              </p>
+            </section>
+          )}
+
           {/* Quick FX chain for the chosen track */}
           {fxTrack && (
             <FxPanel
               key={fxTrack.id}
               trackName={fxTrack.name}
               fx={fxTrack.fx}
+              processor={engine.trackFx(fxTrack.id)}
               sampleRate={engine.ctx.sampleRate}
               onChange={(fx, record) => setTrack(fxTrack.id, { fx }, record)}
               onClose={() => setFxTrackId(null)}

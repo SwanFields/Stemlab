@@ -1,12 +1,18 @@
 /**
  * Quick FX chain, one per track (Web Audio).
  *
- *   input -> Filter (HPF + LPF) -> EQ (8 bands) -> Delay (tempo-synced) -> Reverb -> output
+ *   input -> Utility (gain) -> Filter (HPF + LPF) -> EQ (8 bands) -> Delay (tempo-synced) -> Reverb -> output
  *
  * The same class builds the live chain and the offline (export) chain, so what you hear
  * is what you render. Every module has an on/off switch; a disabled module is bypassed by
  * parking its parameters at neutral values, so toggling never clicks or rewires the graph.
  */
+
+export interface UtilityFx {
+  on: boolean;
+  /** Gain in dB, UTILITY_MIN_DB..UTILITY_MAX_DB. Applied before the other effects. */
+  gain: number;
+}
 
 export interface FilterFx {
   on: boolean;
@@ -55,11 +61,15 @@ export interface ReverbFx {
 }
 
 export interface TrackFx {
+  utility: UtilityFx;
   filter: FilterFx;
   eq: EqFx;
   delay: DelayFx;
   reverb: ReverbFx;
 }
+
+export const UTILITY_MIN_DB = -12;
+export const UTILITY_MAX_DB = 24;
 
 export const EQ_BAND_COUNT = 8;
 export const EQ_MIN_HZ = 20;
@@ -98,6 +108,7 @@ export const eqBandType = (index: number): BiquadFilterType =>
 
 export function defaultFx(): TrackFx {
   return {
+    utility: { on: false, gain: 6 },
     filter: { on: false, hp: 80, lp: 12000, res: 0.7 },
     eq: {
       on: false,
@@ -110,7 +121,18 @@ export function defaultFx(): TrackFx {
 
 /** True when any module is switched on (used for the little indicator on the track header). */
 export function fxActive(fx: TrackFx): boolean {
-  return fx.filter.on || fx.eq.on || fx.delay.on || fx.reverb.on;
+  return fx.utility.on || fx.filter.on || fx.eq.on || fx.delay.on || fx.reverb.on;
+}
+
+/** Names of the modules that are switched on, e.g. ["Delay", "Reverb"]. */
+export function fxActiveModules(fx: TrackFx): string[] {
+  const names: string[] = [];
+  if (fx.utility.on) names.push("Utility");
+  if (fx.filter.on) names.push("Filter");
+  if (fx.eq.on) names.push("EQ");
+  if (fx.delay.on) names.push("Delay");
+  if (fx.reverb.on) names.push("Reverb");
+  return names;
 }
 
 /** Seconds of tail the effects add after the last clip ends, for offline rendering. */
@@ -246,6 +268,7 @@ export class FxProcessor {
   readonly output: GainNode;
 
   private ctx: BaseAudioContext;
+  private util: GainNode;
   private hp: BiquadFilterNode;
   private lp: BiquadFilterNode;
   private eq: BiquadFilterNode[];
@@ -258,12 +281,15 @@ export class FxProcessor {
   private preDelay: DelayNode;
   private convolver: ConvolverNode;
   private reverbLow: BiquadFilterNode;
+  private analyserPre: AnalyserNode | null = null;
+  private analyserPost: AnalyserNode | null = null;
   private impulseKey = "";
   private impulseTimer = 0;
   private disposed = false;
   private nodes: AudioNode[] = [];
 
-  constructor(ctx: BaseAudioContext, fx: TrackFx, bpm: number) {
+  /** `analysis` adds two spectrum taps (before / after the EQ) for the live EQ display; leave off when rendering. */
+  constructor(ctx: BaseAudioContext, fx: TrackFx, bpm: number, analysis = false) {
     this.ctx = ctx;
     const mk = <T extends AudioNode>(node: T): T => {
       this.nodes.push(node);
@@ -273,6 +299,7 @@ export class FxProcessor {
     this.input = mk(ctx.createGain());
     this.output = mk(ctx.createGain());
 
+    this.util = mk(ctx.createGain());
     this.hp = mk(ctx.createBiquadFilter());
     this.hp.type = "highpass";
     this.lp = mk(ctx.createBiquadFilter());
@@ -303,7 +330,8 @@ export class FxProcessor {
     this.reverbLow.frequency.value = 170;
 
     // Wiring.
-    this.input.connect(this.hp);
+    this.input.connect(this.util);
+    this.util.connect(this.hp);
     this.hp.connect(this.lp);
     let prev: AudioNode = this.lp;
     for (const f of this.eq) {
@@ -311,6 +339,19 @@ export class FxProcessor {
       prev = f;
     }
     prev.connect(delayIn);
+
+    if (analysis) {
+      const tap = (): AnalyserNode => {
+        const a = mk(ctx.createAnalyser());
+        a.fftSize = 8192; // ~5 Hz per bin at 44.1 kHz, enough to resolve the low end
+        a.smoothingTimeConstant = 0.8;
+        return a;
+      };
+      this.analyserPre = tap();
+      this.analyserPost = tap();
+      this.lp.connect(this.analyserPre);
+      prev.connect(this.analyserPost);
+    }
 
     delayIn.connect(delayDry);
     delayDry.connect(delaySum);
@@ -332,6 +373,19 @@ export class FxProcessor {
     this.apply(fx, bpm, true, true);
   }
 
+  /** Number of frequency bins getSpectrum() fills (0 when this processor has no analysis taps). */
+  get spectrumSize(): number {
+    return this.analyserPre?.frequencyBinCount ?? 0;
+  }
+
+  /** Spectrum in dB (-Infinity when silent) of the track before or after its EQ. */
+  getSpectrum(which: "pre" | "post", out: Float32Array<ArrayBuffer>): boolean {
+    const analyser = which === "pre" ? this.analyserPre : this.analyserPost;
+    if (!analyser || out.length < analyser.frequencyBinCount) return false;
+    analyser.getFloatFrequencyData(out);
+    return true;
+  }
+
   /** Pushes a TrackFx state onto the nodes. `immediate` skips smoothing (initial setup). */
   apply(fx: TrackFx, bpm: number, immediate = false, syncImpulse = false) {
     if (this.disposed) return;
@@ -341,6 +395,10 @@ export class FxProcessor {
       if (immediate) param.setValueAtTime(value, now);
       else param.setTargetAtTime(value, now, tc);
     };
+
+    // Utility: plain gain, 0 dB (x1) when off
+    const u = fx.utility;
+    set(this.util.gain, u.on ? Math.pow(10, clampNum(u.gain, UTILITY_MIN_DB, UTILITY_MAX_DB) / 20) : 1);
 
     // Filter
     const f = fx.filter;

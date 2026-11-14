@@ -15,6 +15,7 @@
  */
 
 import { FxProcessor, defaultFx, fxTailSeconds, type TrackFx } from "./FxChain";
+import { MicRecorder } from "./MicRecorder";
 
 export interface DawSource {
   id: string;
@@ -24,7 +25,7 @@ export interface DawSource {
   peaks: Float32Array;
   color: string;
   bpm: number;
-  origin: "stem" | "file";
+  origin: "stem" | "file" | "rec";
 }
 
 export interface DawClip {
@@ -62,10 +63,22 @@ export interface Project {
   metronome: boolean;
 }
 
+/** A finished microphone take, positioned on the timeline. */
+export interface RecordedTake {
+  trackId: string;
+  buffer: AudioBuffer;
+  /** Timeline position in beats (never negative). */
+  startBeat: number;
+  /** Seconds trimmed off the start when the take began before beat 0. */
+  offset: number;
+}
+
 export const PEAKS_PER_SECOND = 100;
 export { defaultFx };
 export const MIN_BPM = 40;
 export const MAX_BPM = 240;
+/** Click bus gain at full slider. The raw click is quiet (peak 0.35), so this lifts it well above the music. */
+const METRO_MAX_GAIN = 3.5;
 const DECLICK = 0.004; // seconds of fade at clip edges
 const LOOKAHEAD = 0.6; // seconds of loop scheduling headroom
 
@@ -221,6 +234,8 @@ export function emptyProject(): Project {
 export class DawEngine {
   readonly ctx: AudioContext;
   private master: GainNode;
+  /** Every metronome click passes through here, so its level can change live. */
+  private clickBus: GainNode;
   private nodes = new Map<string, TrackNodes>();
   private active: { node: AudioScheduledSourceNode; end: number }[] = [];
   private audition: AudioBufferSourceNode | null = null;
@@ -249,7 +264,15 @@ export class DawEngine {
     this.master = this.ctx.createGain();
     this.master.gain.value = 0.9;
     this.master.connect(this.ctx.destination);
+    this.clickBus = this.ctx.createGain();
+    this.clickBus.gain.value = METRO_MAX_GAIN * 0.6;
+    this.clickBus.connect(this.ctx.destination);
     this.syncTrackNodes();
+  }
+
+  /** Metronome level, 0..1 (0.6 is the default). Takes effect immediately, even on clicks already queued. */
+  setMetronomeVolume(volume: number) {
+    this.clickBus.gain.setTargetAtTime(clamp(volume, 0, 1) * METRO_MAX_GAIN, this.ctx.currentTime, 0.01);
   }
 
   // ---- React store -------------------------------------------------------
@@ -363,7 +386,7 @@ export class DawEngine {
       const pan = this.ctx.createStereoPanner();
       const analyser = this.ctx.createAnalyser();
       analyser.fftSize = 1024;
-      const fx = new FxProcessor(this.ctx, t.fx, this.project.bpm);
+      const fx = new FxProcessor(this.ctx, t.fx, this.project.bpm, true);
       gain.connect(fx.input);
       fx.output.connect(pan);
       pan.connect(analyser);
@@ -389,9 +412,15 @@ export class DawEngine {
     }
   }
 
+  /** The live effects processor of a track (used by the EQ display). */
+  trackFx(id: string): FxProcessor | null {
+    return this.nodes.get(id)?.fx ?? null;
+  }
+
   /** Peak level 0..1 of a track, for the header meters. */
   private meterBuf = new Float32Array(1024);
   trackLevel(id: string): number {
+    if (this.recording && id === this.recordTrackId) return this.recorder?.level() ?? 0;
     const n = this.nodes.get(id);
     if (!n || !this.playing) return 0;
     n.analyser.getFloatTimeDomainData(this.meterBuf);
@@ -500,7 +529,7 @@ export class DawEngine {
       }
       return;
     }
-    if (this.getBeat() >= this.stopBeat) {
+    if (!this.recording && this.getBeat() >= this.stopBeat) {
       this.stopSources();
       this.playing = false;
       this.cursor = 0;
@@ -572,7 +601,7 @@ export class DawEngine {
         g.gain.exponentialRampToValueAtTime(accent ? 0.35 : 0.2, t + 0.002);
         g.gain.exponentialRampToValueAtTime(0.0001, t + 0.05);
         osc.connect(g);
-        g.connect(ctx.destination);
+        g.connect(ctx === this.ctx ? this.clickBus : ctx.destination);
         osc.start(t);
         osc.stop(t + 0.06);
         keep?.push({ node: osc, end: t + 0.07 });
@@ -613,6 +642,64 @@ export class DawEngine {
     return this.audition ? this.auditionId : null;
   }
 
+  // ---- Recording ---------------------------------------------------------
+  /** True from the moment the microphone is open until stopRecording() resolves. */
+  recording = false;
+  recordTrackId: string | null = null;
+  /** Extra manual shift (ms) added to the automatic latency compensation. */
+  latencyMs = 0;
+  private recorder: MicRecorder | null = null;
+  private recAnchor = { beat: 0, time: 0 };
+
+  /**
+   * Opens the microphone and starts playback and capture together from the playhead.
+   * Rejects with MIC_DENIED / MIC_MISSING / MIC_BUSY / MIC_UNSUPPORTED / MIC_ERROR.
+   * With `monitor` the voice is also heard live through the track's own effects (use headphones).
+   */
+  async startRecording(trackId: string, monitor: boolean): Promise<void> {
+    if (this.recording) return;
+    const node = this.nodes.get(trackId);
+    if (!node) throw new Error("MIC_ERROR");
+    if (this.ctx.state === "suspended") await this.ctx.resume();
+    const recorder = await MicRecorder.open(this.ctx, monitor ? node.gain : null);
+    this.recorder = recorder;
+    this.recordTrackId = trackId;
+    this.recording = true;
+    this.startAt(this.cursor);
+    this.recAnchor = { beat: this.anchorBeat, time: this.anchorTime };
+    recorder.start();
+    this.emit();
+  }
+
+  /** Seconds the take lags behind what the performer heard: output + input latency + manual trim. */
+  private latencyCompensation(): number {
+    const base = this.ctx.baseLatency || 0;
+    const output = this.ctx.outputLatency || base;
+    return output + base + this.latencyMs / 1000;
+  }
+
+  /** Stops capturing and returns the take placed on the timeline (the caller adds the clip). */
+  async stopRecording(): Promise<RecordedTake | null> {
+    const recorder = this.recorder;
+    const trackId = this.recordTrackId;
+    this.recorder = null;
+    this.recording = false;
+    this.recordTrackId = null;
+    if (!recorder) return null;
+    const take = await recorder.stop();
+    this.emit();
+    if (!take || !trackId) return null;
+    const bpm = this.project.bpm;
+    let startBeat = this.recAnchor.beat + ((take.startTime - this.recAnchor.time - this.latencyCompensation()) * bpm) / 60;
+    let offset = 0;
+    if (startBeat < 0) {
+      offset = (-startBeat * 60) / bpm;
+      startBeat = 0;
+    }
+    if (offset >= take.buffer.duration - 0.01) return null;
+    return { trackId, buffer: take.buffer, startBeat, offset };
+  }
+
   // ---- Export ------------------------------------------------------------
   async renderWav(): Promise<Blob> {
     const end = this.contentEnd();
@@ -644,6 +731,9 @@ export class DawEngine {
   }
 
   dispose() {
+    this.recorder?.cancel();
+    this.recorder = null;
+    this.recording = false;
     window.clearTimeout(this.restartTimer);
     this.stopSources();
     this.playing = false;

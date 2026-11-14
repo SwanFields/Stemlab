@@ -1774,7 +1774,7 @@ function DawPage({
           </div>
           <p className="max-w-xl text-sm leading-7 text-neutral-400">
             {t(
-              "หั่น ลูป และเรียงสเตมใหม่บน timeline ที่ลากวางได้อิสระ ใช้สเตมที่เพิ่งแยกเสร็จหรือไฟล์ของคุณเอง แล้วส่งออกเป็น WAV",
+              "ตัดเสียง ลูป และเรียงสเตมใหม่บน Timeline ที่ลากวางได้แบบอิสระ มี FX เบื้องต้นให้ลองใช้ทั้ง Reverb, EQeight, Utility, H/L pas filter ลองใช้สเตมที่เพิ่งแยกเสร็จ \nหรือไฟล์ของคุณเองมามิกซ์ในนี้ดูสิ พร้อมส่งออกเป็นไฟล์ WAV เต็มคุณภาพ",
               "Chop, loop and rearrange stems on a free-form timeline. Use stems you just separated or your own files, then export a WAV.",
             )}
           </p>

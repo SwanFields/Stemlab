@@ -4097,3 +4097,182 @@ html[data-theme="light"] .story-dots span { background: rgb(43 37 31 / 16%); }
 html[data-theme="light"] .story-slab { border-color: rgb(43 37 31 / 18%); background: linear-gradient(145deg, #fffdfa, #efeae4); }
 html[data-theme="light"] .slab-play { background: rgb(43 37 31 / 80%); box-shadow: none; }
 html[data-theme="light"] .scroll-hint { color: #7a7066; }
+
+/* ---------- DAW: microphone recording ---------- */
+.daw-btn.daw-rec {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+}
+.daw-btn.daw-rec i {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: #e5484d;
+}
+.daw-btn.daw-rec.is-recording {
+  border-color: #e5484d;
+  color: #fff;
+  background: rgb(229 72 77 / 18%);
+}
+.daw-btn.daw-rec.is-recording i {
+  animation: daw-rec-pulse 1s ease-in-out infinite;
+}
+.daw-btn-vocal {
+  margin-top: 6px;
+}
+.daw-chip-rec {
+  color: #8a8a8a;
+  font-size: 10px;
+}
+.daw-chip-rec.is-on {
+  border-color: #e5484d;
+  color: #e5484d;
+}
+.daw-chip-rec.is-recording {
+  background: #e5484d;
+  color: #fff;
+  animation: daw-rec-pulse 1s ease-in-out infinite;
+}
+.daw-row.is-recording .daw-lane {
+  background-image: linear-gradient(rgb(229 72 77 / 8%), rgb(229 72 77 / 8%));
+}
+.daw-rec-panel {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 20px;
+  margin-top: 10px;
+  border: 1px solid rgb(255 255 255 / 12%);
+  border-radius: 3px;
+  padding: 10px 14px;
+  font-size: 13px;
+}
+.daw-rec-panel.is-recording {
+  border-color: #e5484d;
+}
+.daw-rec-panel strong {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-weight: 500;
+}
+.daw-rec-panel strong i {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #e5484d;
+}
+.daw-rec-panel.is-recording strong i {
+  animation: daw-rec-pulse 1s ease-in-out infinite;
+}
+.daw-rec-opt {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  color: #a3a3a3;
+}
+.daw-input-latency {
+  width: 64px;
+}
+.daw-rec-panel p {
+  flex-basis: 100%;
+  margin: 0;
+  color: #8a8a8a;
+  font-size: 12px;
+}
+.daw-fx-scope {
+  border: 1px solid #cf9474;
+  border-radius: 2px;
+  padding: 1px 7px;
+  color: #cf9474;
+  font-size: 11px;
+}
+@keyframes daw-rec-pulse {
+  50% {
+    opacity: 0.35;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .daw-btn.daw-rec.is-recording i,
+  .daw-chip-rec.is-recording,
+  .daw-rec-panel.is-recording strong i {
+    animation: none;
+  }
+}
+html[data-theme="light"] .daw-rec-panel {
+  border-color: rgb(55 50 47 / 16%);
+}
+html[data-theme="light"] .daw-rec-panel.is-recording {
+  border-color: #e5484d;
+}
+html[data-theme="light"] .daw-rec-opt,
+html[data-theme="light"] .daw-rec-panel p {
+  color: #6f675f;
+}
+
+.daw-metro-vol {
+  width: 72px;
+  flex: none;
+  accent-color: #cf9474;
+  cursor: pointer;
+}
+
+/* ---------- EQ: live spectrum + cut / boost areas ---------- */
+.daw-eq-spec-post {
+  fill: rgb(207 148 116 / 24%);
+  stroke: none;
+}
+.daw-eq-spec-pre {
+  fill: none;
+  stroke: rgb(255 255 255 / 38%);
+  stroke-width: 1;
+  stroke-dasharray: 3 2;
+  vector-effect: non-scaling-stroke;
+}
+.daw-eq-cut {
+  fill: rgb(229 72 77 / 26%);
+  stroke: none;
+}
+.daw-eq-boost {
+  fill: rgb(88 166 214 / 24%);
+  stroke: none;
+}
+.daw-eq-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 12px;
+  margin: 4px 0 2px;
+  color: #8a8a8a;
+  font-size: 10px;
+}
+.daw-eq-legend span::before {
+  content: "";
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  margin-right: 5px;
+  border-radius: 1px;
+  vertical-align: -1px;
+}
+.daw-eq-legend .is-post::before {
+  background: rgb(207 148 116 / 60%);
+}
+.daw-eq-legend .is-pre::before {
+  border: 1px dashed rgb(255 255 255 / 55%);
+}
+.daw-eq-legend .is-cut::before {
+  background: rgb(229 72 77 / 60%);
+}
+.daw-eq-legend .is-boost::before {
+  background: rgb(88 166 214 / 60%);
+}
+html[data-theme="light"] .daw-eq-spec-pre {
+  stroke: rgb(55 50 47 / 45%);
+}
+html[data-theme="light"] .daw-eq-legend {
+  color: #7d756c;
+}
+html[data-theme="light"] .daw-eq-legend .is-pre::before {
+  border-color: rgb(55 50 47 / 55%);
+}
