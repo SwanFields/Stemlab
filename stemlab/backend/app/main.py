@@ -224,9 +224,14 @@ def build_zip(job_id: str, filename: str) -> Path:
     if not target.exists():
         tmp = target.with_name(f"stems.{uuid.uuid4().hex}.tmp")
         base = safe_base_name(filename)
+        from . import r2
         with zipfile.ZipFile(tmp, "w", zipfile.ZIP_STORED) as zf:  # WAV barely compresses
             for stem in STEMS:
-                zf.write(job_dir(job_id) / "stems" / f"{stem}.wav", arcname=f"{base}_{stem}.wav")
+                stem_file = job_dir(job_id) / "stems" / f"{stem}.wav"
+                if not stem_file.is_file() and r2.is_r2_configured():
+                    r2.download_file(f"{job_id}/{stem}.wav", stem_file)
+                if stem_file.is_file():
+                    zf.write(stem_file, arcname=f"{base}_{stem}.wav")
         tmp.replace(target)
     return target
 
@@ -381,7 +386,10 @@ def history(user: dict[str, str] = Depends(current_user)) -> list[HistoryItem]:
             and isinstance(stems, list)
             and bool(stems)
             and set(stems).issubset(STEMS)
-            and all((job_dir(str(item["job_id"])) / "stems" / f"{stem}.wav").is_file() for stem in stems)
+            and (
+                all((job_dir(str(item["job_id"])) / "stems" / f"{stem}.wav").is_file() for stem in stems)
+                or settings.is_r2_enabled
+            )
         )
         history_items.append(HistoryItem(**item, available=available))
     return history_items
@@ -594,8 +602,18 @@ def download(
         raise HTTPException(404, "ไม่พบแทร็กนี้")
     if as_attachment:  # only explicit saves count; inline playback in the mixer does not
         auth_store.record_stem_downloads(user["id"], job_id, [stem])
+
+    target_file = job_dir(job_id) / "stems" / f"{stem}.wav"
+    if not target_file.is_file():
+        from . import r2
+        if r2.is_r2_configured():
+            r2.download_file(f"{job_id}/{stem}.wav", target_file)
+
+    if not target_file.is_file():
+        raise HTTPException(404, "ไม่พบไฟล์เสียงนี้ (อาจหมดอายุแล้ว)")
+
     return FileResponse(
-        job_dir(job_id) / "stems" / f"{stem}.wav",
+        target_file,
         media_type="audio/wav",
         filename=f"{base}_{stem}.wav",
         content_disposition_type=disposition,

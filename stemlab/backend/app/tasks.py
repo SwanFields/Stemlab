@@ -63,6 +63,14 @@ def separate_task(job_id: str) -> None:
         if missing:
             raise RuntimeError(f"Missing stems: {', '.join(missing)}")
         completed_at = time.time()
+        # Upload to Cloudflare R2 if configured
+        try:
+            from . import r2
+            if r2.is_r2_configured():
+                r2.upload_job_stems(job_id, stems_dir)
+        except Exception as r2_err:
+            logger.warning("R2 upload error for job %s: %s", job_id, r2_err)
+
         if not store.transition(
             job_id,
             "processing",

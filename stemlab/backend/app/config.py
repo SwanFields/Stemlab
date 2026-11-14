@@ -30,6 +30,16 @@ class Settings(BaseSettings):
     demucs_jobs: int = 1
     demucs_shifts: int = 1
 
+    # Cloudflare R2 / S3 Object Storage
+    r2_endpoint_url: str | None = None
+    r2_access_key_id: str | None = None
+    r2_secret_access_key: str | None = None
+    r2_bucket_name: str = "stemlab-audio"
+
+    @property
+    def is_r2_enabled(self) -> bool:
+        return bool(self.r2_endpoint_url and self.r2_access_key_id and self.r2_secret_access_key)
+
     @property
     def max_upload_bytes(self) -> int:
         return self.max_upload_mb * 1024 * 1024
