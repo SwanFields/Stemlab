@@ -1,7 +1,0 @@
-{
-  "name": "stemlab-monorepo",
-  "private": true,
-  "scripts": {
-    "build": "npm --prefix stemlab/frontend run build"
-  }
-}
