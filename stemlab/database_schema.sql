@@ -19,8 +19,23 @@ CREATE TABLE job_history (
     status TEXT NOT NULL,
     created_at REAL NOT NULL,
     completed_at REAL,
-    stems TEXT NOT NULL DEFAULT '[]'
+    stems TEXT NOT NULL DEFAULT '[]',
+    duration_seconds REAL
 );
+
+CREATE TABLE stem_events (
+    id BIGSERIAL PRIMARY KEY,
+    user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    job_id TEXT NOT NULL,
+    stem TEXT NOT NULL,
+    created_at REAL NOT NULL
+);
+
+CREATE INDEX stem_events_user_date_idx
+    ON stem_events(user_id, created_at);
+
+-- Existing databases: ALTER TABLE job_history ADD COLUMN duration_seconds REAL;
+-- (the app also does this automatically on startup)
 
 CREATE INDEX sessions_user_id_idx
     ON sessions(user_id);

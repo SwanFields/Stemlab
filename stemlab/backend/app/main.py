@@ -1,6 +1,8 @@
 """REST API: upload a song, queue AI separation, poll status, download stems."""
 import re
 import shutil
+from collections import defaultdict
+from datetime import datetime, timezone
 import time
 import uuid
 import zipfile
@@ -9,9 +11,11 @@ from pathlib import Path
 
 from fastapi import BackgroundTasks, Cookie, Depends, FastAPI, File, HTTPException, Request, Response, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import FileResponse, JSONResponse
 from pydantic import BaseModel, Field, field_validator
 
+from .audio_info import audio_duration_seconds
 from .auth import SESSION_TTL_SECONDS, auth_store
 from .config import ALLOWED_EXTENSIONS, STEMS, settings
 from .store import store
@@ -120,6 +124,43 @@ class UsernameUpdate(BaseModel):
 class LoginCredentials(BaseModel):
     identifier: str = Field(min_length=3, max_length=254)
     password: str = Field(min_length=10, max_length=128)
+
+
+def _check_new_password(password: str) -> str:
+    if not any(c.isalpha() for c in password) or not any(c.isdigit() for c in password):
+        raise ValueError("รหัสผ่านต้องมีตัวอักษรและตัวเลขอย่างน้อยอย่างละ 1 ตัว")
+    return password
+
+
+class PasswordChange(BaseModel):
+    current_password: str = Field(min_length=1, max_length=128)
+    new_password: str = Field(min_length=10, max_length=128)
+
+    @field_validator("new_password")
+    @classmethod
+    def validate_new_password(cls, password: str) -> str:
+        return _check_new_password(password)
+
+
+class AccountDeletion(BaseModel):
+    password: str = Field(min_length=1, max_length=128)
+
+
+class MonthlyStat(BaseModel):
+    month: str  # YYYY-MM (UTC)
+    songs: int
+    minutes: float
+    stems: dict[str, int]
+
+
+class StatsResponse(BaseModel):
+    member_since: float
+    total_songs: int
+    total_minutes: float
+    total_stem_downloads: int
+    top_stem: str | None
+    stem_totals: dict[str, int]
+    months: list[MonthlyStat]
 
 
 class UserResponse(BaseModel):
@@ -246,6 +287,50 @@ def update_username(
     return updated_user
 
 
+def _clear_session_cookie(response: Response) -> None:
+    response.delete_cookie(
+        "stemlab_session",
+        path="/",
+        httponly=True,
+        secure=settings.auth_cookie_secure_effective,
+        samesite=settings.auth_cookie_samesite,
+    )
+
+
+@app.put("/api/auth/password", status_code=204)
+def change_password(
+    body: PasswordChange,
+    user: dict[str, str] = Depends(current_user),
+    stemlab_session: str | None = Cookie(default=None),
+) -> Response:
+    if body.new_password == body.current_password:
+        raise HTTPException(422, "รหัสผ่านใหม่ต้องไม่ซ้ำกับรหัสผ่านเดิม")
+    if not auth_store.change_password(user["id"], body.current_password, body.new_password, stemlab_session):
+        raise HTTPException(403, "รหัสผ่านปัจจุบันไม่ถูกต้อง")
+    return Response(status_code=204)
+
+
+@app.delete("/api/auth/account", status_code=204)
+def delete_account(
+    body: AccountDeletion,
+    response: Response,
+    user: dict[str, str] = Depends(current_user),
+) -> Response:
+    job_ids = auth_store.delete_account(user["id"], body.password)
+    if job_ids is None:
+        raise HTTPException(403, "รหัสผ่านปัจจุบันไม่ถูกต้อง")
+    for job_id in job_ids:
+        if JOB_ID_RE.match(job_id):
+            shutil.rmtree(job_dir(job_id), ignore_errors=True)
+            try:
+                store.delete(job_id)
+            except Exception:  # noqa: BLE001 - Redis keys expire on their own anyway
+                pass
+    out = Response(status_code=204)
+    _clear_session_cookie(out)
+    return out
+
+
 @app.post("/api/auth/logout", status_code=204)
 def logout(
     response: Response,
@@ -302,6 +387,62 @@ def history(user: dict[str, str] = Depends(current_user)) -> list[HistoryItem]:
     return history_items
 
 
+@app.get("/api/stats", response_model=StatsResponse)
+def stats(user: dict[str, str] = Depends(current_user)) -> StatsResponse:
+    raw = auth_store.usage_stats(user["id"])
+    member_since = float(raw["created_at"] or time.time())
+
+    def month_key(ts: float) -> str:
+        return datetime.fromtimestamp(ts, tz=timezone.utc).strftime("%Y-%m")
+
+    songs: dict[str, int] = defaultdict(int)
+    seconds: dict[str, float] = defaultdict(float)
+    stem_counts: dict[str, dict[str, int]] = defaultdict(lambda: defaultdict(int))
+    totals = {stem: 0 for stem in STEMS}
+
+    for created_at, status, duration in raw["jobs"]:  # type: ignore[misc]
+        if status != "done":
+            continue
+        key = month_key(float(created_at))
+        songs[key] += 1
+        seconds[key] += float(duration or 0)
+    for created_at, stem in raw["events"]:  # type: ignore[misc]
+        if stem in totals:
+            stem_counts[month_key(float(created_at))][stem] += 1
+            totals[stem] += 1
+
+    # Every month from sign-up to now, so the chart has no gaps.
+    start = datetime.fromtimestamp(member_since, tz=timezone.utc)
+    now = datetime.now(tz=timezone.utc)
+    year, month = start.year, start.month
+    months: list[MonthlyStat] = []
+    while (year, month) <= (now.year, now.month):
+        key = f"{year:04d}-{month:02d}"
+        months.append(
+            MonthlyStat(
+                month=key,
+                songs=songs.get(key, 0),
+                minutes=round(seconds.get(key, 0.0) / 60, 1),
+                stems={stem: stem_counts[key].get(stem, 0) for stem in STEMS},
+            )
+        )
+        month += 1
+        if month > 12:
+            year, month = year + 1, 1
+
+    total_downloads = sum(totals.values())
+    top = max(STEMS, key=lambda s: totals[s]) if total_downloads else None
+    return StatsResponse(
+        member_since=member_since,
+        total_songs=sum(songs.values()),
+        total_minutes=round(sum(seconds.values()) / 60, 1),
+        total_stem_downloads=total_downloads,
+        top_stem=top,
+        stem_totals=totals,
+        months=months,
+    )
+
+
 @app.post("/api/upload", response_model=UploadResponse, status_code=201)
 async def upload(
     background: BackgroundTasks,
@@ -337,6 +478,7 @@ async def upload(
         raise
 
     created_at = time.time()
+    duration = await run_in_threadpool(audio_duration_seconds, jdir / input_file)
     store.create(
         job_id,
         filename=name,
@@ -344,6 +486,7 @@ async def upload(
         size_bytes=size,
         user_id=user["id"],
         created_at=created_at,
+        duration_seconds=duration,
     )
     background.add_task(cleanup_expired)
     return UploadResponse(job_id=job_id, filename=name, size_bytes=size)
@@ -358,7 +501,14 @@ def process(job_id: str, user: dict[str, str] = Depends(current_user)) -> dict:
     job = store.get(job_id)
     if job is None:
         raise HTTPException(404, "ไม่พบงานนี้")
-    auth_store.record_job(job_id, user["id"], job["filename"], job["created_at"], status="queued")
+    auth_store.record_job(
+        job_id,
+        user["id"],
+        job["filename"],
+        job["created_at"],
+        status="queued",
+        duration_seconds=job.get("duration_seconds"),
+    )
     current = store.get(job_id)
     if current is None or current["status"] == "cancelled":
         auth_store.delete_job_history(job_id)
@@ -418,6 +568,7 @@ def download(
     base = safe_base_name(job["filename"])
 
     if track_name == "all":
+        auth_store.record_stem_downloads(user["id"], job_id, list(STEMS))
         return FileResponse(
             build_zip(job_id, job["filename"]),
             media_type="application/zip",
@@ -441,6 +592,8 @@ def download(
     stem = track_name.removesuffix(".wav")
     if stem not in STEMS:  # whitelist: no user text ever reaches the filesystem path
         raise HTTPException(404, "ไม่พบแทร็กนี้")
+    if as_attachment:  # only explicit saves count; inline playback in the mixer does not
+        auth_store.record_stem_downloads(user["id"], job_id, [stem])
     return FileResponse(
         job_dir(job_id) / "stems" / f"{stem}.wav",
         media_type="audio/wav",

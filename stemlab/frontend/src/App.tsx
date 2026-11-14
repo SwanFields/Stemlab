@@ -1,6 +1,9 @@
 import { useCallback, useEffect, useRef, useState, type ChangeEvent, type FormEvent } from "react";
 import {
   cancelJob,
+  changePassword,
+  deleteAccount,
+  getStats,
   getHealth,
   getCurrentUser,
   getHistory,
@@ -15,6 +18,7 @@ import {
   type HistoryItem,
   type JobInfo,
   type JobStatus,
+  type Stats,
   type StemInfo,
   type User,
 } from "./api";
@@ -23,6 +27,9 @@ import MiniDaw from "./components/MiniDaw";
 import { DawGuideSection, DawLandingSection } from "./components/DawShowcase";
 import ProcessingView from "./components/ProcessingView";
 import UploadZone from "./components/UploadZone";
+import ConfirmDialog, { CHANGE_PASSWORD_PHRASES, DELETE_ACCOUNT_PHRASES } from "./components/ConfirmDialog";
+import ProfileOrb from "./components/ProfileOrb";
+import UsagePanel from "./components/UsagePanel";
 import { useLanguage } from "./components/Language";
 
 type Phase =
@@ -63,6 +70,9 @@ function translateError(message: string, language: "th" | "en"): string {
     "รองรับเฉพาะไฟล์ MP3, WAV และ FLAC": "Only MP3, WAV, and FLAC files are supported.",
     "ไฟล์ว่างเปล่า": "The file is empty.",
     "ไฟล์นี้ไม่ใช่รูปภาพที่อ่านได้": "This image file could not be read.",
+    "รหัสผ่านปัจจุบันไม่ถูกต้อง": "The current password is incorrect.",
+    "รหัสผ่านใหม่ต้องไม่ซ้ำกับรหัสผ่านเดิม": "The new password must be different from the current one.",
+    "รหัสผ่านต้องมีตัวอักษรและตัวเลขอย่างน้อยอย่างละ 1 ตัว": "The password needs at least one letter and one number.",
     "ไฟล์เสียงหมดอายุหรือถูกลบแล้ว จึงเปิดมิกเซอร์ไม่ได้": "The audio files have expired or were deleted, so the mixer is unavailable.",
   };
   return errors[message] ?? message;
@@ -336,6 +346,11 @@ export default function App() {
         onStudio={() => navigate("studio")}
         onLogout={handleLogout}
         onUserUpdated={setUser}
+        onAccountDeleted={() => {
+          setUser(null);
+          setLogoutError(null);
+          navigate("home");
+        }}
       />
     );
   }
@@ -925,6 +940,13 @@ function InfoCard({ title, description }: { title: string; description: string }
   );
 }
 
+type AccountConfirm =
+  | { kind: "username"; value: string }
+  | { kind: "avatar-save"; file: File }
+  | { kind: "avatar-remove" }
+  | { kind: "password" }
+  | { kind: "delete" };
+
 function AccountPage({
   user,
   error,
@@ -933,6 +955,7 @@ function AccountPage({
   onStudio,
   onLogout,
   onUserUpdated,
+  onAccountDeleted,
 }: {
   user: User;
   error: string | null;
@@ -941,6 +964,7 @@ function AccountPage({
   onStudio: () => void;
   onLogout: () => void;
   onUserUpdated: (user: User) => void;
+  onAccountDeleted: () => void;
 }) {
   const { t, language } = useLanguage();
   const [avatar, setAvatar] = useState<string | null>(null);
@@ -949,7 +973,18 @@ function AccountPage({
   const [editingUsername, setEditingUsername] = useState(false);
   const [username, setUsername] = useState(user.username);
   const [usernameError, setUsernameError] = useState<string | null>(null);
-  const [usernameSaving, setUsernameSaving] = useState(false);
+  const [stats, setStats] = useState<Stats | null>(null);
+  const [statsLoading, setStatsLoading] = useState(true);
+  const [statsError, setStatsError] = useState<string | null>(null);
+  const [confirm, setConfirm] = useState<AccountConfirm | null>(null);
+  const [confirmBusy, setConfirmBusy] = useState(false);
+  const [confirmError, setConfirmError] = useState<string | null>(null);
+  const [currentPassword, setCurrentPassword] = useState("");
+  const [newPassword, setNewPassword] = useState("");
+  const [repeatPassword, setRepeatPassword] = useState("");
+  const [passwordError, setPasswordError] = useState<string | null>(null);
+  const [passwordDone, setPasswordDone] = useState(false);
+  const [deletePassword, setDeletePassword] = useState("");
   const avatarKey = `stemlab.avatar.${user.id}`;
 
   useEffect(() => {
@@ -960,7 +995,40 @@ function AccountPage({
     }
   }, [avatarKey]);
 
-  const saveAvatar = async (event: ChangeEvent<HTMLInputElement>) => {
+  useEffect(() => {
+    let cancelled = false;
+    getStats()
+      .then((data) => { if (!cancelled) setStats(data); })
+      .catch((e: unknown) => {
+        if (!cancelled) setStatsError(e instanceof Error ? translateError(e.message, language) : t("โหลดสถิติไม่สำเร็จ", "Could not load statistics."));
+      })
+      .finally(() => { if (!cancelled) setStatsLoading(false); });
+    return () => { cancelled = true; };
+  }, []);
+
+  const closeConfirm = () => {
+    if (confirmBusy) return;
+    setConfirm(null);
+    setConfirmError(null);
+    setDeletePassword("");
+  };
+
+  /** Runs `action` for the open dialog; closes it on success, shows the error inside it on failure. */
+  const runConfirmed = async (action: () => Promise<void>) => {
+    setConfirmBusy(true);
+    setConfirmError(null);
+    try {
+      await action();
+      setConfirm(null);
+    } catch (e) {
+      setConfirmError(e instanceof Error ? translateError(e.message, language) : t("ดำเนินการไม่สำเร็จ", "The action could not be completed."));
+    } finally {
+      setConfirmBusy(false);
+    }
+  };
+
+  // ----- avatar -----
+  const pickAvatar = (event: ChangeEvent<HTMLInputElement>) => {
     const file = event.currentTarget.files?.[0];
     event.currentTarget.value = "";
     if (!file) return;
@@ -972,7 +1040,11 @@ function AccountPage({
       setAvatarError(t("รูปภาพต้องมีขนาดไม่เกิน 5 MB", "The image must be 5 MB or smaller."));
       return;
     }
+    setAvatarError(null);
+    setConfirm({ kind: "avatar-save", file });
+  };
 
+  const saveAvatar = async (file: File) => {
     setAvatarError(null);
     setAvatarLoading(true);
     try {
@@ -995,17 +1067,7 @@ function AccountPage({
       canvas.height = size;
       const context = canvas.getContext("2d");
       if (!context) throw new Error(t("ไม่สามารถประมวลผลรูปโปรไฟล์ได้", "Could not process the profile photo."));
-      context.drawImage(
-        image,
-        (image.naturalWidth - crop) / 2,
-        (image.naturalHeight - crop) / 2,
-        crop,
-        crop,
-        0,
-        0,
-        size,
-        size,
-      );
+      context.drawImage(image, (image.naturalWidth - crop) / 2, (image.naturalHeight - crop) / 2, crop, crop, 0, 0, size, size);
       const resized = canvas.toDataURL("image/jpeg", 0.82);
       window.localStorage.setItem(avatarKey, resized);
       setAvatar(resized);
@@ -1026,25 +1088,140 @@ function AccountPage({
     }
   };
 
-  const saveUsername = async (event: FormEvent<HTMLFormElement>) => {
+  // ----- username -----
+  const requestUsernameSave = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     const normalizedUsername = username.trim().toLowerCase();
     if (!/^[a-z0-9_]{3,30}$/.test(normalizedUsername)) {
       setUsernameError(t("Username ต้องมี 3-30 ตัว ใช้ได้เฉพาะ a-z, 0-9 และ _", "Username must be 3–30 characters and use only a-z, 0-9, and _."));
       return;
     }
-    setUsernameSaving(true);
-    setUsernameError(null);
-    try {
-      const updatedUser = await updateUsername(normalizedUsername);
-      onUserUpdated(updatedUser);
-      setUsername(updatedUser.username);
+    if (normalizedUsername === user.username) {
       setEditingUsername(false);
-    } catch (e) {
-      setUsernameError(e instanceof Error ? translateError(e.message, language) : t("แก้ไข Username ไม่สำเร็จ", "Could not update username."));
-    } finally {
-      setUsernameSaving(false);
+      return;
     }
+    setUsernameError(null);
+    setConfirm({ kind: "username", value: normalizedUsername });
+  };
+
+  // ----- password -----
+  const requestPasswordChange = (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    setPasswordDone(false);
+    if (newPassword.length < 10 || newPassword.length > 128) {
+      setPasswordError(t("รหัสผ่านใหม่ต้องยาว 10-128 ตัวอักษร", "The new password must be 10–128 characters."));
+    } else if (!/[A-Za-z\u0E00-\u0E7F]/.test(newPassword) || !/\d/.test(newPassword)) {
+      setPasswordError(t("รหัสผ่านต้องมีตัวอักษรและตัวเลขอย่างน้อยอย่างละ 1 ตัว", "The password needs at least one letter and one number."));
+    } else if (newPassword !== repeatPassword) {
+      setPasswordError(t("รหัสผ่านใหม่ทั้งสองช่องไม่ตรงกัน", "The two new passwords do not match."));
+    } else if (newPassword === currentPassword) {
+      setPasswordError(t("รหัสผ่านใหม่ต้องไม่ซ้ำกับรหัสผ่านเดิม", "The new password must be different from the current one."));
+    } else {
+      setPasswordError(null);
+      setConfirm({ kind: "password" });
+    }
+  };
+
+  // ----- derived data for the profile visual -----
+  const currentMonth = stats?.months[stats.months.length - 1];
+  const orbIntensity = Math.min(1, (currentMonth?.songs ?? 0) / 6);
+  const orbWeights = stats?.stem_totals ?? { vocals: 0, drums: 0, bass: 0, other: 0 };
+
+  const renderConfirm = () => {
+    if (!confirm) return null;
+    if (confirm.kind === "username") {
+      return (
+        <ConfirmDialog
+          title={t("ยืนยันการเปลี่ยน Username?", "Change your username?")}
+          description={<p>{t("Username จะเปลี่ยนจาก", "Your username will change from")} <strong>{user.username}</strong> {t("เป็น", "to")} <strong>{confirm.value}</strong></p>}
+          confirmLabel={t("ยืนยัน เปลี่ยน Username", "Yes, change username")}
+          busy={confirmBusy}
+          error={confirmError}
+          onCancel={closeConfirm}
+          onConfirm={() => runConfirmed(async () => {
+            const updated = await updateUsername(confirm.value);
+            onUserUpdated(updated);
+            setUsername(updated.username);
+            setEditingUsername(false);
+          })}
+        />
+      );
+    }
+    if (confirm.kind === "avatar-save") {
+      return (
+        <ConfirmDialog
+          title={t("ยืนยันการเปลี่ยนรูปโปรไฟล์?", "Change your profile photo?")}
+          description={<p>{t("รูปใหม่", "The new photo")} “{confirm.file.name}” {t("จะแทนที่รูปเดิมบนอุปกรณ์นี้", "will replace the current one on this device.")}</p>}
+          confirmLabel={t("ยืนยัน เปลี่ยนรูป", "Yes, change photo")}
+          busy={confirmBusy}
+          error={confirmError}
+          onCancel={closeConfirm}
+          onConfirm={() => runConfirmed(() => saveAvatar(confirm.file))}
+        />
+      );
+    }
+    if (confirm.kind === "avatar-remove") {
+      return (
+        <ConfirmDialog
+          title={t("ยืนยันการลบรูปโปรไฟล์?", "Remove your profile photo?")}
+          description={<p>{t("รูปจะถูกลบออกจากเบราว์เซอร์นี้ และกลับไปแสดงตัวอักษรย่อแทน", "The photo will be removed from this browser and your initials will be shown instead.")}</p>}
+          confirmLabel={t("ยืนยัน ลบรูป", "Yes, remove photo")}
+          danger
+          busy={confirmBusy}
+          error={confirmError}
+          onCancel={closeConfirm}
+          onConfirm={() => runConfirmed(async () => removeAvatar())}
+        />
+      );
+    }
+    if (confirm.kind === "password") {
+      return (
+        <ConfirmDialog
+          title={t("ยืนยันการเปลี่ยนรหัสผ่าน?", "Change your password?")}
+          description={<p>{t("เมื่อเปลี่ยนแล้ว อุปกรณ์อื่นที่เข้าสู่ระบบอยู่จะถูกออกจากระบบ", "Other devices that are signed in will be signed out.")}</p>}
+          confirmLabel={t("ยืนยัน เปลี่ยนรหัสผ่าน", "Yes, change password")}
+          phrases={CHANGE_PASSWORD_PHRASES}
+          busy={confirmBusy}
+          error={confirmError}
+          onCancel={closeConfirm}
+          onConfirm={() => runConfirmed(async () => {
+            await changePassword(currentPassword, newPassword);
+            setCurrentPassword("");
+            setNewPassword("");
+            setRepeatPassword("");
+            setPasswordDone(true);
+          })}
+        />
+      );
+    }
+    return (
+      <ConfirmDialog
+        title={t("ลบบัญชีของคุณถาวร?", "Permanently delete your account?")}
+        description={<p>{t("บัญชี ประวัติการแยก STEM และไฟล์เสียงทั้งหมดของคุณจะถูกลบ และไม่สามารถกู้คืนได้", "Your account, STEM history and all audio files will be deleted and cannot be recovered.")}</p>}
+        confirmLabel={t("ลบบัญชีถาวร", "Delete permanently")}
+        danger
+        phrases={DELETE_ACCOUNT_PHRASES}
+        canConfirm={deletePassword.length > 0}
+        busy={confirmBusy}
+        error={confirmError}
+        onCancel={closeConfirm}
+        onConfirm={() => runConfirmed(async () => {
+          await deleteAccount(deletePassword);
+          onAccountDeleted();
+        })}
+      >
+        <label className="auth-label" htmlFor="delete-password">{t("รหัสผ่านปัจจุบัน", "Current password")}</label>
+        <input
+          id="delete-password"
+          className="auth-input"
+          type="password"
+          autoComplete="current-password"
+          value={deletePassword}
+          onChange={(event) => setDeletePassword(event.target.value)}
+          disabled={confirmBusy}
+        />
+      </ConfirmDialog>
+    );
   };
 
   return (
@@ -1067,9 +1244,9 @@ function AccountPage({
         {error && <p className="mb-6 border-l-2 border-neutral-500 pl-3 text-sm text-neutral-300" role="alert">{translateError(error, language)}</p>}
         <p className="eyebrow"><span className="status-dot" /> {t("หน้าแดชบอร์ดส่วนตัว", "Personal dashboard")}</p>
         <h1 className="mt-5 text-4xl font-semibold tracking-tight text-white sm:text-5xl">{t("บัญชีของฉัน", "My account")}</h1>
-        <p className="mt-3 text-sm leading-7 text-neutral-400">{t("จัดการข้อมูลโปรไฟล์และดูสถานะบัญชี Stemlab ของคุณ", "Manage your profile and view your Stemlab account status.")}</p>
+        <p className="mt-3 text-sm leading-7 text-neutral-400">{t("ดูสถิติการใช้งาน จัดการโปรไฟล์ และความปลอดภัยของบัญชี Stemlab ของคุณ", "See your usage, and manage your profile and account security.")}</p>
 
-        <section className="account-profile-card mt-10">
+        <section className="account-profile-card account-hero mt-10">
           <div className="account-profile-top">
             <div className="profile-avatar" aria-label={`รูปโปรไฟล์ ${user.username}`}>
               {avatar ? <img src={avatar} alt="" /> : <span>{getUserInitials(user)}</span>}
@@ -1079,24 +1256,28 @@ function AccountPage({
               <h2 className="mt-2 truncate text-xl font-medium text-white">{user.username}</h2>
               <p className="mt-1 truncate text-sm text-neutral-400">{user.email}</p>
               <span className="account-active-badge mt-3"><span /> {t("บัญชีใช้งานอยู่", "Active account")}</span>
+              <div className="mt-4 flex flex-wrap gap-3">
+                <label className={`avatar-upload-button ${avatarLoading ? "disabled" : ""}`}>
+                  {avatarLoading ? t("กำลังบันทึก...", "Saving...") : t("เปลี่ยนรูป", "Change photo")}
+                  <input className="sr-only" type="file" accept="image/jpeg,image/png,image/webp" disabled={avatarLoading} onChange={pickAvatar} />
+                </label>
+                {avatar && <button className="account-secondary-button" type="button" onClick={() => setConfirm({ kind: "avatar-remove" })}>{t("ลบรูป", "Remove photo")}</button>}
+              </div>
             </div>
-            <div className="flex flex-wrap gap-3">
-              <label className={`avatar-upload-button ${avatarLoading ? "disabled" : ""}`}>
-                {avatarLoading ? t("กำลังบันทึก...", "Saving...") : t("เปลี่ยนรูป", "Change photo")}
-                <input
-                  className="sr-only"
-                  type="file"
-                  accept="image/jpeg,image/png,image/webp"
-                  disabled={avatarLoading}
-                  onChange={saveAvatar}
-                />
-              </label>
-              {avatar && <button className="account-secondary-button" type="button" onClick={removeAvatar}>{t("ลบรูป", "Remove photo")}</button>}
+            <div className="profile-orb-wrap" title={t("ภาพแสดงกิจกรรม: วงแหวนแต่ละวงคือสเต็มหนึ่งชนิด ยิ่งใช้บ่อยยิ่งสว่าง", "Activity visual: each ring is one stem type; the more you use it, the brighter it glows.")}>
+              <ProfileOrb
+                weights={orbWeights}
+                intensity={orbIntensity}
+                label={t("ภาพ 3D แสดงกิจกรรมการใช้งานของคุณ", "3D visual of your activity")}
+              />
+              <p className="profile-orb-caption">{t("Activity", "Activity")}</p>
             </div>
           </div>
           {avatarError && <p className="auth-error mt-5" role="alert">{avatarError}</p>}
           <p className="mt-5 text-xs leading-6 text-neutral-500">{t("รูปโปรไฟล์นี้บันทึกไว้ในเบราว์เซอร์และอุปกรณ์นี้เท่านั้น ยังไม่ได้อัปโหลดไปยังเซิร์ฟเวอร์", "This profile photo is saved only in this browser and on this device. It is not uploaded to the server.")}</p>
         </section>
+
+        <UsagePanel stats={stats} loading={statsLoading} error={statsError} />
 
         <section className="mt-8 grid gap-4 md:grid-cols-2">
           <article className="account-detail-card">
@@ -1117,7 +1298,7 @@ function AccountPage({
               )}
             </div>
             {editingUsername ? (
-              <form className="mt-4" onSubmit={saveUsername}>
+              <form className="mt-4" onSubmit={requestUsernameSave}>
                 <label className="auth-label" htmlFor="account-username">Username</label>
                 <input
                   id="account-username"
@@ -1131,14 +1312,11 @@ function AccountPage({
                   required
                   value={username}
                   onChange={(event) => setUsername(event.target.value)}
-                  disabled={usernameSaving}
                 />
                 <p className="mt-2 text-xs text-neutral-500">{t("ใช้ตัวอักษรภาษาอังกฤษ ตัวเลข หรือ _ จำนวน 3-30 ตัว", "Use 3–30 English letters, numbers, or underscores (_).")}</p>
                 {usernameError && <p className="auth-error mt-3" role="alert">{usernameError}</p>}
                 <div className="mt-4 flex flex-wrap gap-2">
-                  <button className="button button-small" type="submit" disabled={usernameSaving}>
-                    {usernameSaving ? t("กำลังบันทึก...", "Saving...") : t("บันทึก Username", "Save username")}
-                  </button>
+                  <button className="button button-small" type="submit">{t("บันทึก Username", "Save username")}</button>
                   <button
                     className="account-secondary-button"
                     type="button"
@@ -1147,7 +1325,6 @@ function AccountPage({
                       setUsernameError(null);
                       setEditingUsername(false);
                     }}
-                    disabled={usernameSaving}
                   >
                     {t("ยกเลิก", "Cancel")}
                   </button>
@@ -1161,14 +1338,30 @@ function AccountPage({
             <p className="text-xs uppercase tracking-[0.15em] text-neutral-500">{t("อีเมลที่ผูกกับบัญชี", "Account email")}</p>
             <p className="mt-3 break-all text-base text-white">{user.email}</p>
           </article>
-          <article className="account-detail-card">
-            <p className="text-xs uppercase tracking-[0.15em] text-neutral-500">{t("สถานะบัญชี", "Account status")}</p>
-            <p className="mt-3 flex items-center gap-2 text-base text-white"><span className="account-online-dot" /> {t("ใช้งานอยู่", "Active")}</p>
-          </article>
-          <article className="account-detail-card">
-            <p className="text-xs uppercase tracking-[0.15em] text-neutral-500">{t("ความปลอดภัย", "Security")}</p>
-            <p className="mt-3 text-sm leading-6 text-neutral-300">{t("เข้าสู่ระบบด้วยอีเมลหรือ Username และรหัสผ่าน", "Sign in with your email or username and password.")}</p>
-          </article>
+        </section>
+
+        <section className="account-detail-card mt-4" aria-labelledby="password-title">
+          <p id="password-title" className="text-xs uppercase tracking-[0.15em] text-neutral-500">{t("เปลี่ยนรหัสผ่าน", "Change password")}</p>
+          <form className="mt-4 grid gap-4 md:grid-cols-3" onSubmit={requestPasswordChange}>
+            <div>
+              <label className="auth-label" htmlFor="current-password">{t("รหัสผ่านปัจจุบัน", "Current password")}</label>
+              <input id="current-password" className="auth-input" type="password" autoComplete="current-password" required value={currentPassword} onChange={(e) => { setCurrentPassword(e.target.value); setPasswordDone(false); }} />
+            </div>
+            <div>
+              <label className="auth-label" htmlFor="new-password">{t("รหัสผ่านใหม่", "New password")}</label>
+              <input id="new-password" className="auth-input" type="password" autoComplete="new-password" minLength={10} maxLength={128} required value={newPassword} onChange={(e) => { setNewPassword(e.target.value); setPasswordDone(false); }} />
+            </div>
+            <div>
+              <label className="auth-label" htmlFor="repeat-password">{t("ยืนยันรหัสผ่านใหม่", "Repeat new password")}</label>
+              <input id="repeat-password" className="auth-input" type="password" autoComplete="new-password" required value={repeatPassword} onChange={(e) => { setRepeatPassword(e.target.value); setPasswordDone(false); }} />
+            </div>
+            <div className="md:col-span-3">
+              <p className="text-xs text-neutral-500">{t("อย่างน้อย 10 ตัวอักษร และมีทั้งตัวอักษรและตัวเลข", "At least 10 characters, with both letters and numbers.")}</p>
+              {passwordError && <p className="auth-error mt-3" role="alert">{passwordError}</p>}
+              {passwordDone && <p className="account-success mt-3" role="status">{t("เปลี่ยนรหัสผ่านเรียบร้อยแล้ว", "Your password has been changed.")}</p>}
+              <button className="button button-small mt-4" type="submit">{t("เปลี่ยนรหัสผ่าน", "Change password")}</button>
+            </div>
+          </form>
         </section>
 
         <section className="account-actions mt-8 flex flex-wrap items-center justify-between gap-4">
@@ -1181,7 +1374,16 @@ function AccountPage({
             <button className="button button-small" onClick={onStudio}>{t("แยกเพลงใหม่", "Separate a new song")} <span aria-hidden="true">↗</span></button>
           </div>
         </section>
+
+        <section className="danger-zone mt-8" aria-labelledby="danger-title">
+          <div>
+            <h2 id="danger-title" className="text-base font-medium text-white">{t("ลบบัญชี", "Delete account")}</h2>
+            <p className="mt-1 text-sm leading-6 text-neutral-400">{t("ลบบัญชี ประวัติ และไฟล์เสียงทั้งหมดอย่างถาวร ไม่สามารถกู้คืนได้", "Permanently delete your account, history and audio files. This cannot be undone.")}</p>
+          </div>
+          <button className="danger-button" type="button" onClick={() => { setDeletePassword(""); setConfirmError(null); setConfirm({ kind: "delete" }); }}>{t("ลบบัญชีของฉัน", "Delete my account")}</button>
+        </section>
       </main>
+      {renderConfirm()}
     </div>
   );
 }

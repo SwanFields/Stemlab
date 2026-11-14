@@ -69,6 +69,7 @@ class JobStore:
             "stage": raw.get("stage", ""),
             "error": raw.get("error") or None,
             "stems": json.loads(raw.get("stems") or "[]"),
+            "duration_seconds": float(raw["duration_seconds"]) if raw.get("duration_seconds") else None,
         }
 
     def update(self, job_id: str, **fields: Any) -> None:

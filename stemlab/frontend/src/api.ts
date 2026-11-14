@@ -38,6 +38,25 @@ export interface HistoryItem {
   available: boolean;
 }
 
+export type StemName = "vocals" | "drums" | "bass" | "other";
+
+export interface MonthlyStat {
+  month: string; // YYYY-MM (UTC)
+  songs: number;
+  minutes: number;
+  stems: Record<StemName, number>;
+}
+
+export interface Stats {
+  member_since: number;
+  total_songs: number;
+  total_minutes: number;
+  total_stem_downloads: number;
+  top_stem: StemName | null;
+  stem_totals: Record<StemName, number>;
+  months: MonthlyStat[];
+}
+
 const BASE: string = import.meta.env.DEV ? (import.meta.env.VITE_API_BASE || "") : "";
 const NETWORK_MESSAGE = "เชื่อมต่อเซิร์ฟเวอร์ไม่ได้ ตรวจสอบว่า Backend ทำงานอยู่";
 
@@ -85,6 +104,22 @@ export const updateUsername = (username: string) =>
     method: "PUT",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ username }),
+  });
+
+export const getStats = () => request<Stats>("/api/stats");
+
+export const changePassword = (currentPassword: string, newPassword: string) =>
+  request<void>("/api/auth/password", {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ current_password: currentPassword, new_password: newPassword }),
+  });
+
+export const deleteAccount = (password: string) =>
+  request<void>("/api/auth/account", {
+    method: "DELETE",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ password }),
   });
 
 export const getHistory = () => request<HistoryItem[]>("/api/history");

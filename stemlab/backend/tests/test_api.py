@@ -387,3 +387,53 @@ def test_demucs_wrapper_surfaces_failure(tmp_path, monkeypatch):
     src.write_bytes(make_wav(0.2))
     with pytest.raises(RuntimeError, match="out of memory"):
         separators.run_demucs(src, tmp_path / "stems", lambda *_: None)
+
+
+def test_stats_count_minutes_and_stem_downloads(client):
+    job_id = upload(client, make_wav(3.0)).json()["job_id"]
+    client.post(f"/api/process/{job_id}")
+    tasks.separate_task.run(job_id)
+
+    client.get(f"/api/download/{job_id}/vocals.wav")  # inline playback: not counted
+    client.get(f"/api/download/{job_id}/vocals?as_attachment=true")
+    client.get(f"/api/download/{job_id}/vocals?as_attachment=true")
+    client.get(f"/api/download/{job_id}/drums?as_attachment=true")
+
+    data = client.get("/api/stats").json()
+    assert data["total_songs"] == 1
+    assert data["total_minutes"] == pytest.approx(0.05, abs=0.01)  # 3 s
+    assert data["stem_totals"]["vocals"] == 2
+    assert data["top_stem"] == "vocals"
+    assert len(data["months"]) == 1 and data["months"][0]["songs"] == 1
+
+
+def test_change_password_requires_current_password(client):
+    wrong = client.put(
+        "/api/auth/password",
+        json={"current_password": "not the password1", "new_password": "brand new pass 22"},
+    )
+    assert wrong.status_code == 403
+    ok = client.put(
+        "/api/auth/password",
+        json={"current_password": "correct horse battery1", "new_password": "brand new pass 22"},
+    )
+    assert ok.status_code == 204
+    assert client.get("/api/auth/me").status_code == 200  # this session stays signed in
+    client.post("/api/auth/logout")
+    assert client.post(
+        "/api/auth/login", json={"identifier": "testuser", "password": "brand new pass 22"}
+    ).status_code == 200
+
+
+def test_delete_account_removes_everything(client):
+    job_id = upload(client, make_wav(1.0)).json()["job_id"]
+    client.post(f"/api/process/{job_id}")
+    tasks.separate_task.run(job_id)
+
+    assert client.request("DELETE", "/api/auth/account", json={"password": "nope nope 123"}).status_code == 403
+    assert client.request("DELETE", "/api/auth/account", json={"password": "correct horse battery1"}).status_code == 204
+    assert client.get("/api/auth/me").status_code == 401
+    assert not (settings.storage_dir / job_id).exists()
+    assert client.post(
+        "/api/auth/login", json={"identifier": "testuser", "password": "correct horse battery1"}
+    ).status_code == 401

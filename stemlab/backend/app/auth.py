@@ -11,6 +11,7 @@ from sqlalchemy import (
     Column,
     Float,
     ForeignKey,
+    Integer,
     Index,
     MetaData,
     String,
@@ -59,6 +60,16 @@ job_history = Table(
     Column("created_at", Float, nullable=False),
     Column("completed_at", Float),
     Column("stems", Text, nullable=False, server_default="[]"),
+    Column("duration_seconds", Float),
+)
+stem_events = Table(
+    "stem_events",
+    metadata,
+    Column("id", BigInteger().with_variant(Integer, "sqlite"), primary_key=True, autoincrement=True),
+    Column("user_id", String, ForeignKey("users.id", ondelete="CASCADE"), nullable=False),
+    Column("job_id", String, nullable=False),
+    Column("stem", String, nullable=False),
+    Column("created_at", Float, nullable=False),
 )
 Index("users_email_lower_unique", func.lower(users.c.email), unique=True)
 Index(
@@ -70,6 +81,7 @@ Index(
 )
 Index("sessions_user_id_idx", sessions.c.user_id)
 Index("job_history_user_date_idx", job_history.c.user_id, job_history.c.created_at.desc())
+Index("stem_events_user_date_idx", stem_events.c.user_id, stem_events.c.created_at)
 
 
 class AuthStore:
@@ -120,6 +132,11 @@ class AuthStore:
                         connection.exec_driver_sql("ALTER TABLE users ADD COLUMN username TEXT")
 
         metadata.create_all(engine)
+        # Databases created before the stats feature lack job_history.duration_seconds.
+        with engine.begin() as connection:
+            history_columns = {c["name"] for c in inspect(connection).get_columns("job_history")}
+            if "duration_seconds" not in history_columns:
+                connection.exec_driver_sql("ALTER TABLE job_history ADD COLUMN duration_seconds FLOAT")
         self._engine = engine
         self._engine_key = database_url
 
@@ -239,6 +256,7 @@ class AuthStore:
         filename: str,
         created_at: float,
         status: str = "uploaded",
+        duration_seconds: float | None = None,
     ) -> None:
         self.initialize()
         with self._connect() as db, db.begin():
@@ -257,6 +275,7 @@ class AuthStore:
                         filename=filename,
                         status=status,
                         created_at=created_at,
+                        duration_seconds=duration_seconds,
                     )
                 )
 
@@ -308,6 +327,93 @@ class AuthStore:
             }
             for row in rows
         ]
+
+
+    # ---------- account management ----------
+    def _password_ok(self, db: Connection, user_id: str, password: str) -> bool:
+        row = db.execute(select(users.c.password_hash).where(users.c.id == user_id)).first()
+        if row is None:
+            return False
+        try:
+            algorithm, rounds, salt_hex, expected_hex = row[0].split("$", 3)
+        except ValueError:
+            return False
+        if algorithm != "pbkdf2_sha256":
+            return False
+        actual = hashlib.pbkdf2_hmac(
+            "sha256", password.encode(), bytes.fromhex(salt_hex), int(rounds)
+        ).hex()
+        return hmac.compare_digest(actual, expected_hex)
+
+    def change_password(
+        self, user_id: str, current_password: str, new_password: str, keep_token: str | None
+    ) -> bool:
+        """Returns False when the current password is wrong. Other sessions are signed out."""
+        self.initialize()
+        with self._connect() as db, db.begin():
+            if not self._password_ok(db, user_id, current_password):
+                return False
+            db.execute(
+                update(users)
+                .where(users.c.id == user_id)
+                .values(password_hash=self._hash_password(new_password))
+            )
+            others = sessions.delete().where(sessions.c.user_id == user_id)
+            if keep_token:
+                others = others.where(sessions.c.token_hash != self._session_hash(keep_token))
+            db.execute(others)
+        return True
+
+    def delete_account(self, user_id: str, password: str) -> list[str] | None:
+        """Delete the user and everything tied to them.
+
+        Returns the job ids whose files should be removed, or None if the password is wrong.
+        """
+        self.initialize()
+        with self._connect() as db, db.begin():
+            if not self._password_ok(db, user_id, password):
+                return None
+            job_ids = [
+                row[0]
+                for row in db.execute(
+                    select(job_history.c.job_id).where(job_history.c.user_id == user_id)
+                )
+            ]
+            # Explicit deletes so this also works if a database lacks FK cascades.
+            db.execute(stem_events.delete().where(stem_events.c.user_id == user_id))
+            db.execute(job_history.delete().where(job_history.c.user_id == user_id))
+            db.execute(sessions.delete().where(sessions.c.user_id == user_id))
+            db.execute(users.delete().where(users.c.id == user_id))
+        return job_ids
+
+    # ---------- usage statistics ----------
+    def record_stem_downloads(self, user_id: str, job_id: str, stems: list[str]) -> None:
+        self.initialize()
+        now = time.time()
+        with self._connect() as db, db.begin():
+            db.execute(
+                stem_events.insert(),
+                [{"user_id": user_id, "job_id": job_id, "stem": s, "created_at": now} for s in stems],
+            )
+
+    def usage_stats(self, user_id: str) -> dict[str, object]:
+        """Raw rows for the dashboard; month bucketing is done in Python so it works on SQLite and Postgres."""
+        self.initialize()
+        with self._connect() as db:
+            created = db.execute(select(users.c.created_at).where(users.c.id == user_id)).scalar()
+            jobs = db.execute(
+                select(
+                    job_history.c.created_at,
+                    job_history.c.status,
+                    job_history.c.duration_seconds,
+                ).where(job_history.c.user_id == user_id)
+            ).all()
+            events = db.execute(
+                select(stem_events.c.created_at, stem_events.c.stem).where(
+                    stem_events.c.user_id == user_id
+                )
+            ).all()
+        return {"created_at": created, "jobs": jobs, "events": events}
 
 
 auth_store = AuthStore()
