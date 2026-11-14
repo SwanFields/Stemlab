@@ -232,7 +232,7 @@ function StemScope({ player, name }: ScopeProps) {
       //  3. the window always spans ~2 periods of the detected pitch, so a higher note visibly packs more
       //     waves into the view and a lower note stretches them out.
       const wave = player.getWaveform(name);
-      if (wave) {
+      if (wave && wave.length > 4) {
         const n = wave.length;
         const smooth = s.scratch.length === n ? s.scratch : (s.scratch = new Float32Array(n));
         let peak = 0;
@@ -242,6 +242,7 @@ function StemScope({ player, name }: ScopeProps) {
           if (a > peak) peak = a;
         }
         s.bass += (peak - s.bass) * (peak > s.bass ? 0.5 : 0.1);
+        if (!Number.isFinite(s.bass)) s.bass = 0;
 
         // rising zero-crossings with hysteresis (must dip below -thr before crossing up)
         const thr = Math.max(0.01, s.bass * 0.12);
@@ -256,10 +257,22 @@ function StemScope({ player, name }: ScopeProps) {
         }
         if (crossings.length >= 2) {
           const measured = (crossings[crossings.length - 1] - crossings[0]) / (crossings.length - 1);
-          s.period += (measured - s.period) * 0.25;
+          if (Number.isFinite(measured) && measured > 0) {
+            s.period += (measured - s.period) * 0.25;
+          }
         }
-        const start = crossings.length > 0 ? crossings[0] : 2;
-        const span = Math.max(128, Math.min(n - start - 2, Math.round(s.period * 2)));
+        if (!Number.isFinite(s.period) || s.period < 16) s.period = 512;
+
+        const span = Math.max(32, Math.min(n - 4, Math.round(s.period * 2)));
+
+        // Find the first crossing that leaves enough room for span, or default to safe start
+        let start = 2;
+        for (const c of crossings) {
+          if (c + span < n) {
+            start = c;
+            break;
+          }
+        }
 
         const points = s.trace.length;
         const gain = 2.4;
@@ -268,14 +281,21 @@ function StemScope({ player, name }: ScopeProps) {
         ctx.lineWidth = dpr * (1.3 + Math.min(1, s.bass * 2) * 1.5);
         ctx.beginPath();
         for (let p = 0; p < points; p++) {
-          const sample = smooth[start + Math.floor((p / (points - 1)) * (span - 1))];
+          const sampleIdx = Math.min(n - 1, Math.max(0, start + Math.floor((p / (points - 1)) * (span - 1))));
+          const rawSample = smooth[sampleIdx];
+          const sample = Number.isFinite(rawSample) ? rawSample : 0;
           const target = Math.tanh(sample * gain); // soft limit: loud notes round off instead of clipping flat
+
+          if (!Number.isFinite(s.trace[p])) s.trace[p] = 0;
           s.trace[p] += (target - s.trace[p]) * 0.7; // tiny temporal blend against frame-to-frame flicker
+          if (!Number.isFinite(s.trace[p])) s.trace[p] = 0;
+
           const taper = Math.sin((Math.PI * p) / (points - 1));
           const y = cy - s.trace[p] * ah * 0.44 * (0.3 + 0.7 * taper);
+          const safeY = Number.isFinite(y) ? y : cy;
           const x = (p / (points - 1)) * w;
-          if (p === 0) ctx.moveTo(x, y);
-          else ctx.lineTo(x, y);
+          if (p === 0) ctx.moveTo(x, safeY);
+          else ctx.lineTo(x, safeY);
         }
         ctx.stroke();
       }
