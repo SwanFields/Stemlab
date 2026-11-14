@@ -21,7 +21,9 @@ class Settings(BaseSettings):
 
     # "demucs" = real ML model (needs torch + demucs + ffmpeg)
     # "mock"   = classical DSP filters, only for development without a GPU/torch
+    # "modal"  = serverless ML worker on Modal
     separator: str = "demucs"
+    modal_demucs_url: str | None = None
     demucs_model: str = "htdemucs"
     demucs_device: str = "auto"  # auto | cpu | cuda | mps
     demucs_segment: int = 4

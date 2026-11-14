@@ -5,6 +5,7 @@
 for development and tests only and is NOT machine learning.
 """
 import io
+import os
 import zipfile
 import urllib.request
 import urllib.error
@@ -57,12 +58,18 @@ def run_modal(input_path: Path, out_dir: Path, on_progress: ProgressFn, modal_ur
 def separate(input_path: Path, out_dir: Path, on_progress: ProgressFn) -> None:
     """Write vocals/drums/bass/other .wav files into `out_dir`."""
     backend = settings.separator.lower()
-    if backend == "demucs":
+    modal_url = getattr(settings, "modal_demucs_url", None) or os.environ.get("MODAL_DEMUCS_URL")
+
+    if backend == "modal" or (modal_url and backend != "mock"):
+        if not modal_url:
+            raise ValueError("ต้องกำหนด MODAL_DEMUCS_URL เมื่อใช้ SEPARATOR='modal'")
+        run_modal(input_path, out_dir, on_progress, modal_url)
+    elif backend == "demucs":
         run_demucs(input_path, out_dir, on_progress)
     elif backend == "mock":
         run_mock(input_path, out_dir, on_progress)
     else:
-        raise ValueError(f"Unknown SEPARATOR '{settings.separator}' (use 'demucs' or 'mock')")
+        raise ValueError(f"Unknown SEPARATOR '{settings.separator}' (use 'demucs', 'modal' or 'mock')")
 
 
 def run_demucs(input_path: Path, out_dir: Path, on_progress: ProgressFn) -> None:
