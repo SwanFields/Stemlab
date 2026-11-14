@@ -4,6 +4,10 @@
 `mock` is a classical DSP split (filters + mid/side) that needs no model; it is
 for development and tests only and is NOT machine learning.
 """
+import io
+import zipfile
+import urllib.request
+import urllib.error
 import re
 import shutil
 import subprocess
@@ -18,6 +22,37 @@ ProgressFn = Callable[[int, str], None]
 
 _PCT = re.compile(r"(\d{1,3})%\|")
 
+def run_modal(input_path: Path, out_dir: Path, on_progress: ProgressFn, modal_url: str) -> None:
+    on_progress(10, "กำลังส่งไฟล์เสียงไปยัง Modal Cloud...")
+    
+    # ส่งไฟล์เพลงไปยัง Modal Web Endpoint
+    boundary = "----WebKitFormBoundary7MA4YWxkTrZu0gW"
+    filename = input_path.name
+    with open(input_path, "rb") as f:
+        file_bytes = f.read()
+    body = (
+        f"--{boundary}\r\n"
+        f'Content-Disposition: form-data; name="file"; filename="{filename}"\r\n'
+        f"Content-Type: audio/mpeg\r\n\r\n"
+    ).encode("utf-8") + file_bytes + f"\r\n--{boundary}--\r\n".encode("utf-8")
+    req = urllib.request.Request(
+        modal_url,
+        data=body,
+        headers={"Content-Type": f"multipart/form-data; boundary={boundary}"},
+        method="POST"
+    )
+    on_progress(30, "AI กำลังแยกเสียงบน Modal Worker (CPU)...")
+    try:
+        with urllib.request.urlopen(req, timeout=600) as response:
+            zip_bytes = response.read()
+    except Exception as e:
+        raise RuntimeError(f"Modal ประมวลผลล้มเหลว: {e}")
+    on_progress(90, "กำลังบันทึก Stems 4 แทร็ก...")
+    out_dir.mkdir(parents=True, exist_ok=True)
+    with zipfile.ZipFile(io.BytesIO(zip_bytes)) as zf:
+        zf.extractall(out_dir)
+        
+    on_progress(100, "ประมวลผลเสร็จสิ้น")
 
 def separate(input_path: Path, out_dir: Path, on_progress: ProgressFn) -> None:
     """Write vocals/drums/bass/other .wav files into `out_dir`."""
