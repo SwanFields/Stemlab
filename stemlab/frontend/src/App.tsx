@@ -1,5 +1,6 @@
-import { useCallback, useEffect, useRef, useState, type ChangeEvent, type FormEvent } from "react";
+import { useCallback, useEffect, useRef, useState, type ChangeEvent, type CSSProperties, type FormEvent } from "react";
 import {
+  ApiError,
   cancelJob,
   changePassword,
   deleteAccount,
@@ -30,6 +31,7 @@ import UploadZone from "./components/UploadZone";
 import ConfirmDialog, { CHANGE_PASSWORD_PHRASES, DELETE_ACCOUNT_PHRASES } from "./components/ConfirmDialog";
 import ProfileOrb from "./components/ProfileOrb";
 import UsagePanel from "./components/UsagePanel";
+import { HeroBackdrop, StemMarquee, StemStory, useParallaxScene } from "./components/Parallax";
 import { useLanguage } from "./components/Language";
 
 type Phase =
@@ -47,8 +49,8 @@ function translateStage(stage: string): string {
     "กำลังส่งงานเข้าคิว": "Sending job to the queue",
     "อยู่ในคิว": "Queued",
     "เริ่มประมวลผล": "Starting processing",
-    "กำลังโหลดโมเดล AI (Demucs)": "Loading AI model (Demucs)",
-    "AI กำลังแยกเสียง": "AI is separating audio",
+    "กำลังโหลดโมเดล AI": "Loading AI model (Demucs)",
+    "กำลังแยกเสียง": "AI is separating audio",
     "กำลังจัดเก็บไฟล์เสียง": "Saving audio files",
     "อ่านไฟล์เสียง (โหมดจำลอง DSP)": "Reading audio (DSP demo mode)",
     "กรองย่านเสียงเบส": "Filtering bass frequencies",
@@ -73,7 +75,7 @@ function translateError(message: string, language: "th" | "en"): string {
     "รหัสผ่านปัจจุบันไม่ถูกต้อง": "The current password is incorrect.",
     "รหัสผ่านใหม่ต้องไม่ซ้ำกับรหัสผ่านเดิม": "The new password must be different from the current one.",
     "รหัสผ่านต้องมีตัวอักษรและตัวเลขอย่างน้อยอย่างละ 1 ตัว": "The password needs at least one letter and one number.",
-    "ไฟล์เสียงหมดอายุหรือถูกลบแล้ว จึงเปิดมิกเซอร์ไม่ได้": "The audio files have expired or were deleted, so the mixer is unavailable.",
+    "ไฟล์เสียงหมดอายุหรือถูกลบแล้ว เปิดมิกเซอร์ไม่ได้": "The audio files have expired or were deleted, so the mixer is unavailable.",
   };
   return errors[message] ?? message;
 }
@@ -606,6 +608,8 @@ function HomePage({
   onAccount: () => void;
 }) {
   const { t } = useLanguage();
+  const rootRef = useRef<HTMLDivElement>(null);
+  useParallaxScene(rootRef);
   const stems = [
     { name: t("เสียงร้อง", "Vocals"), color: "#cf9474", level: "72%" },
     { name: t("กลอง", "Drums"), color: "#cf9474", level: "88%" },
@@ -614,7 +618,8 @@ function HomePage({
   ];
 
   return (
-    <div className="landing-page min-h-screen overflow-hidden">
+    <div ref={rootRef} className="landing-page landing-clip min-h-screen">
+      <div className="scroll-progress" data-progress aria-hidden="true" />
       <header className="landing-nav mx-auto flex max-w-6xl items-center justify-between px-5 py-5 sm:px-8">
         <a className="flex items-center gap-3 font-semibold tracking-tight text-white" href="/" aria-label={t("Stemlab หน้าหลัก", "Stemlab home")}>
           <span className="brand-mark" aria-hidden="true"><span /><span /><span /><span /></span>
@@ -638,24 +643,25 @@ function HomePage({
 
       <main>
         {error && <p className="mx-auto mt-6 max-w-6xl border-l-2 border-neutral-500 px-5 pl-3 text-sm text-neutral-300 sm:px-8" role="alert">{error}</p>}
-        <section className="hero-section relative mx-auto grid max-w-6xl items-center gap-12 px-5 pb-24 pt-14 sm:px-8 md:grid-cols-[1.05fr_0.95fr] md:pb-32 md:pt-24">
-          <div className="hero-copy relative z-10">
+        <section className="hero-section relative mx-auto grid max-w-6xl items-center gap-12 px-5 pb-28 pt-14 sm:px-8 md:grid-cols-[1.05fr_0.95fr] md:pb-40 md:pt-24">
+          <HeroBackdrop />
+          <div className="hero-copy relative z-10" data-plx-y="-0.1" data-plx-fade="1.5">
             <p className="eyebrow"><span className="status-dot" /> {t("เครื่องมือแยกเสียงเพลงสำหรับทุกไอเดีย", "A music separation tool for every idea")}</p>
-            <h1 className="mt-7 max-w-2xl text-5xl font-semibold leading-[1.1] tracking-tight text-white sm:text-6xl lg:text-7xl">
-              {t("ฟังทุกเลเยอร์", "Hear every layer")}<br />
-              <span className="text-accent">{t("ในแบบของคุณ", "your way")}</span>
+            <h1 className="hero-title mt-7 max-w-2xl text-5xl font-semibold leading-[1.1] tracking-tight text-white sm:text-6xl lg:text-7xl">
+              <span className="hero-line"><span style={{ "--l": 0 } as CSSProperties}>{t("ฟังทุกเลเยอร์", "Hear every layer")}</span></span>
+              <span className="hero-line"><span className="text-accent" style={{ "--l": 1 } as CSSProperties}>{t("ในแบบของคุณ", "your way")}</span></span>
             </h1>
             <p className="mt-6 max-w-lg text-base leading-8 text-neutral-400 sm:text-lg">
-              {t("แยกเสียงร้อง กลอง เบส และเครื่องดนตรีออกจากเพลง แล้วมิกซ์ ปรับเสียง และดาวน์โหลดแทร็กที่คุณต้องการ", "Separate vocals, drums, bass, and instruments from your music. Mix, adjust, and download the tracks you need.")}
+              {t("Stemlab เครื่องมือแยกเสียงร้อง กลอง เบส และเครื่องดนตรีออกจากเพลงแล้วมิกซ์ ปรับเสียงและดาวน์โหลดแทร็กที่ต้องการ", "Separate vocals, drums, bass, and instruments from your music. Mix, adjust, and download the tracks you need.")}
             </p>
             <div className="mt-9 flex flex-wrap items-center gap-5">
-              <button className="button" onClick={onStart}>{t("เริ่มต้นการใช้งาน", "Start using Stemlab")} <span aria-hidden="true">↗</span></button>
-              <button className="text-sm text-neutral-400 transition hover:text-white" onClick={onHowItWorks}>{t("อ่านวิธีทำงาน", "How it works")} <span aria-hidden="true">↗</span></button>
+              <button className="button" onClick={onStart}>{t("ลองใช้ดูสิ", "Start using Stemlab")} <span aria-hidden="true">↗</span></button>
+              <button className="text-sm text-neutral-400 transition hover:text-white" onClick={onHowItWorks}>{t("โปรแกรมนี้ทำงานยังไงนะ", "How it works")} <span aria-hidden="true">↗</span></button>
             </div>
-            <p className="mt-6 text-xs text-neutral-500">{t("อัปโหลดเพลงของคุณ แล้วเริ่มแยกแทร็กได้ในไม่กี่ขั้นตอน", "Upload a song and separate its tracks in just a few steps.")}</p>
+            <p className="mt-6 text-xs text-neutral-500">{t("อัปโหลดเพลง คลิปเสียงที่ต้องการแล้วเริ่มแยกแทร็กได้ในไม่กี่นาที", "Upload a song and separate its tracks in just a few steps.")}</p>
           </div>
 
-          <div className="hero-art relative mx-auto w-full max-w-[510px]" aria-label={t("ตัวอย่างแทร็กเสียงที่แยกออกจากกัน", "Preview of separated audio tracks")}>
+          <div className="hero-art relative z-10 mx-auto w-full max-w-[510px]" data-plx-y="0.1" data-plx-rotx="9" data-plx-mouse="-8" aria-label={t("ตัวอย่างแทร็กเสียงที่แยกออกจากกัน", "Preview of separated audio tracks")}>
             <div className="art-glow" />
             <div className="audio-card relative">
               <div className="flex items-center justify-between border-b border-white/10 px-5 py-4">
@@ -692,19 +698,26 @@ function HomePage({
             <div className="floating-note note-one">{t("เสียงร้อง", "Vocals")} <span>↗</span></div>
             <div className="floating-note note-two"><span className="status-dot" /> {t("แยกเสียงเรียบร้อย", "Tracks separated")}</div>
           </div>
+          <a className="scroll-hint" href="#story" aria-label={t("เลื่อนลงเพื่อดูการทำงาน", "Scroll to see how it works")}>
+            <span>{t("เลื่อนลง", "Scroll")}</span><i aria-hidden="true" />
+          </a>
         </section>
+
+        <StemMarquee />
+
+        <StemStory onStart={onStart} />
 
         <section id="features" className="feature-section border-y border-white/[0.08]">
           <div className="mx-auto max-w-6xl px-5 py-20 sm:px-8 md:py-24">
-            <div className="max-w-xl">
+            <div className="max-w-xl" data-reveal>
               <p className="eyebrow">{t("เครื่องมือที่ทำให้เพลงเป็นของคุณ", "Tools that make music yours")}</p>
               <h2 className="mt-4 text-3xl font-semibold tracking-tight text-white sm:text-4xl">{t("มากกว่าแค่แยกเสียง", "More than separation")}</h2>
               <p className="mt-4 leading-7 text-neutral-400">{t("ควบคุมแต่ละส่วนของเพลงได้อย่างอิสระ ตั้งแต่การฟังไปจนถึงการส่งออกไฟล์", "Control every part of a song, from listening to exporting.")}</p>
             </div>
             <div className="mt-12 grid gap-4 sm:grid-cols-3">
-              <FeatureCard number="01" title={t("แยกเป็น 4 แทร็ก", "Four separate tracks")} description={t("แยกเสียงร้อง กลอง เบส และเครื่องดนตรีอื่น ๆ ออกจากเพลงต้นฉบับ", "Separate vocals, drums, bass, and other instruments from the original song.")} />
-              <FeatureCard number="02" title={t("มิกซ์ได้ตามใจ", "Mix your way")} description={t("ปรับความดัง เปิดหรือปิดเสียงแต่ละแทร็ก แล้วฟังผลได้ทันที", "Adjust volume, mute or solo tracks, and hear the changes instantly.")} />
-              <FeatureCard number="03" title={t("ดาวน์โหลดแทร็ก", "Download tracks")} description={t("ส่งออกไฟล์เสียงของแต่ละแทร็ก เพื่อนำไปสร้างสรรค์ต่อในแบบของคุณ", "Export individual audio tracks and continue creating your way.")} />
+              <div data-reveal style={{ "--d": "0" } as CSSProperties} className="reveal-cell"><FeatureCard number="01" title={t("แยกเป็น 4 แทร็ก", "Four separate tracks")} description={t("แยกเสียงร้อง กลอง เบส และเครื่องดนตรีอื่น ๆ ออกจากเพลงต้นฉบับ", "Separate vocals, drums, bass, and other instruments from the original song.")} /></div>
+              <div data-reveal style={{ "--d": "1" } as CSSProperties} className="reveal-cell"><FeatureCard number="02" title={t("มิกซ์ได้ตามใจ", "Mix your way")} description={t("ปรับความดัง เปิดหรือปิดเสียงแต่ละแทร็ก แล้วฟังผลได้ทันที", "Adjust volume, mute or solo tracks, and hear the changes instantly.")} /></div>
+              <div data-reveal style={{ "--d": "2" } as CSSProperties} className="reveal-cell"><FeatureCard number="03" title={t("ดาวน์โหลดแทร็ก", "Download tracks")} description={t("ส่งออกไฟล์เสียงของแต่ละแทร็ก เพื่อนำไปสร้างสรรค์ต่อในแบบของคุณ", "Export individual audio tracks and continue creating your way.")} /></div>
             </div>
           </div>
         </section>
@@ -712,7 +725,7 @@ function HomePage({
         <DawLandingSection onOpen={() => goTo("/daw")} />
 
         <section id="how-it-works" className="mx-auto max-w-6xl px-5 py-20 sm:px-8 md:py-24">
-          <div className="flex flex-col justify-between gap-5 md:flex-row md:items-end">
+          <div data-reveal className="flex flex-col justify-between gap-5 md:flex-row md:items-end">
             <div>
               <p className="eyebrow">{t("เริ่มได้ง่าย ๆ", "Easy to get started")}</p>
               <h2 className="mt-4 text-3xl font-semibold tracking-tight text-white sm:text-4xl">{t("สามขั้นตอนสู่ทุกเสียง", "Three steps to every sound")}</h2>
@@ -720,14 +733,14 @@ function HomePage({
             <button className="text-left text-sm text-accent transition hover:text-white" onClick={onHowItWorks}>{t("อ่านรายละเอียดการทำงาน", "Learn how it works")} <span aria-hidden="true">↗</span></button>
           </div>
           <div className="mt-12 grid gap-8 border-t border-white/10 pt-7 sm:grid-cols-3">
-            <Step number="01" title={t("อัปโหลดเพลง", "Upload a song")} description={t("เลือกไฟล์เพลงที่ต้องการแยกจากอุปกรณ์ของคุณ", "Choose a song from your device to separate.")} />
-            <Step number="02" title={t("รอระบบประมวลผล", "Let it process")} description={t("Stemlab จะแยกเสียงออกเป็นแทร็กที่ปรับแต่งได้", "Stemlab separates the audio into tracks you can adjust.")} />
-            <Step number="03" title={t("ฟังและดาวน์โหลด", "Listen and download")} description={t("มิกซ์แทร็กตามต้องการ แล้วดาวน์โหลดไฟล์เสียง", "Mix the tracks as you like, then download the audio.")} />
+            <div data-reveal style={{ "--d": "0" } as CSSProperties}><Step number="01" title={t("อัปโหลดเพลง", "Upload a song")} description={t("เลือกไฟล์เพลงที่ต้องการแยกจากอุปกรณ์ของคุณ", "Choose a song from your device to separate.")} /></div>
+            <div data-reveal style={{ "--d": "1" } as CSSProperties}><Step number="02" title={t("รอระบบประมวลผล", "Let it process")} description={t("Stemlab จะแยกเสียงออกเป็นแทร็กที่ปรับแต่งได้", "Stemlab separates the audio into tracks you can adjust.")} /></div>
+            <div data-reveal style={{ "--d": "2" } as CSSProperties}><Step number="03" title={t("ฟังและดาวน์โหลด", "Listen and download")} description={t("มิกซ์แทร็กตามต้องการ แล้วดาวน์โหลดไฟล์เสียง", "Mix the tracks as you like, then download the audio.")} /></div>
           </div>
         </section>
 
         <section className="mx-auto max-w-6xl px-5 pb-20 sm:px-8 md:pb-28">
-          <div className="cta-panel flex flex-col items-start justify-between gap-7 px-7 py-9 sm:px-10 md:flex-row md:items-center md:px-14 md:py-12">
+          <div data-reveal className="cta-panel flex flex-col items-start justify-between gap-7 px-7 py-9 sm:px-10 md:flex-row md:items-center md:px-14 md:py-12">
             <div>
               <p className="eyebrow">{t("พร้อมเริ่มหรือยัง?", "Ready to get started?")}</p>
               <h2 className="mt-3 text-2xl font-semibold tracking-tight text-white sm:text-3xl">{t("เพลงเดิม ฟังได้อีกมุม", "Hear your music differently")}</h2>
@@ -1000,7 +1013,12 @@ function AccountPage({
     getStats()
       .then((data) => { if (!cancelled) setStats(data); })
       .catch((e: unknown) => {
-        if (!cancelled) setStatsError(e instanceof Error ? translateError(e.message, language) : t("โหลดสถิติไม่สำเร็จ", "Could not load statistics."));
+        if (cancelled) return;
+        if (e instanceof ApiError && (e.status === 404 || e.status === 405)) {
+          setStatsError(t("เซิร์ฟเวอร์ยังเป็นเวอร์ชันเก่า ไม่มีระบบสถิติ กรุณารีสตาร์ท Backend แล้วรีเฟรชหน้านี้", "The server is running an older version without statistics. Restart the backend and refresh this page."));
+        } else {
+          setStatsError(e instanceof Error ? translateError(e.message, language) : t("โหลดสถิติไม่สำเร็จ", "Could not load statistics."));
+        }
       })
       .finally(() => { if (!cancelled) setStatsLoading(false); });
     return () => { cancelled = true; };

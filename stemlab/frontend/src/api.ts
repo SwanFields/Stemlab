@@ -60,7 +60,11 @@ export interface Stats {
 const BASE: string = import.meta.env.DEV ? (import.meta.env.VITE_API_BASE || "") : "";
 const NETWORK_MESSAGE = "เชื่อมต่อเซิร์ฟเวอร์ไม่ได้ ตรวจสอบว่า Backend ทำงานอยู่";
 
-export class ApiError extends Error {}
+export class ApiError extends Error {
+  constructor(message: string, readonly status = 0) {
+    super(message);
+  }
+}
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   let res: Response;
@@ -77,7 +81,7 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
     } catch {
       /* body was not JSON */
     }
-    throw new ApiError(message);
+    throw new ApiError(message, res.status);
   }
   if (res.status === 204) return undefined as T;
   return (await res.json()) as T;
